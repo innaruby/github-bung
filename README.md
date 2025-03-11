@@ -67,19 +67,15 @@ def paste_data_to_excel(button_paths):
 
 def click_below_image(image_paths, offset_y=30):
     try:
-        if isinstance(image_paths, str):
-            image_paths = [image_paths]
-        
-        for image_path in image_paths:
-            image_location = locate_image_opencv_multiscale(image_path)
-            if image_location:
-                x, y = image_location
-                click_position = (x, y + offset_y)
-                pyautogui.moveTo(click_position[0], click_position[1], duration=1)
-                pyautogui.click()
-                print(f"Clicked at position: {click_position}")
-            else:
-                print(f"Image not found: {image_path}")
+        best_location = locate_image_opencv_multiscale(image_paths)
+        if best_location:
+            x, y = best_location
+            click_position = (x, y + offset_y)
+            pyautogui.moveTo(click_position[0], click_position[1], duration=1)
+            pyautogui.click()
+            print(f"Clicked at position: {click_position}")
+        else:
+            print(f"No high-confidence match found for any of the images: {image_paths}")
     except Exception as e:
         print(f"An error occurred: {e}")
 
