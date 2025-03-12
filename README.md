@@ -1,92 +1,44 @@
-import time
-import numpy as np
-import cv2
-import pyautogui
 
-def locate_image_opencv_multiscale(image_paths, threshold=0.8, scales=np.linspace(0.5, 2.0, 30)):
-    try:
-        if isinstance(image_paths, str):
-            image_paths = [image_paths]
 
-        screenshot = pyautogui.screenshot()
-        screenshot_rgb = cv2.cvtColor(np.array(screenshot), cv2.COLOR_RGB2BGR)
-        screenshot_gray = cv2.cvtColor(screenshot_rgb, cv2.COLOR_BGR2GRAY)
 
-        best_match = None
-        best_score = threshold
-        best_location = None
 
-        for image_path in image_paths:
-            print(f"Trying to read image: {image_path}")
-            template = cv2.imread(image_path, cv2.IMREAD_COLOR)
-            if template is None:
-                print(f"Failed to read image: {image_path}")
-                continue
+Current process is like , i need to create a powerpoint presentation from the data from excel.
+For that I select each slide , and then in the settings I add a connection or a shortcut link to the 
+Excel , where I need to get the data from. It will be as a table. And when the table is 
+Aktualised or updated with new data , that gets automatically reflected in the powerpoint slide. 
+In order to create this for each slide is really time consuming because each time for each slide I need 
+To set the setting in paste option and I need to select the area or range from the excel sheet manually.
 
-            template_gray = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
-            
-            for scale in scales:
-                resized_template = cv2.resize(template_gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
-                tH, tW = resized_template.shape[:2]
-                if tH > screenshot_gray.shape[0] or tW > screenshot_gray.shape[1]:
-                    continue
+The new automated process will like following
+, In an excel file look in each sheet if in cell T1 , Whether somelike in the format PPT Folie Number for example PPT Folie 60 is written or not. IF this pattern is recognized in the cell T1 , 
+The number in the cell correspond to the sheet 60 in the powerpoint file. All the files that means both the excel and powerpoint are lying in the same folder. 
+Only we will do the processing for the sheets in excel where in cell T1 , there is a value like PPT Folie 58  like this is there. The number in the cell can change. 
+So the process is like the following , 
+In the excel sheet we need to identify a table like grouped data at first then we need to copy its content to the powerpoint slide with a good structure. 
+So inorder to identify the table like structure from the powerpoint , we have to identify the four boundaries. 
 
-                result = cv2.matchTemplate(screenshot_gray, resized_template, cv2.TM_CCOEFF_NORMED)
-                _, max_val, _, max_loc = cv2.minMaxLoc(result)
+Lets assume the shape of the boundary as a rectangle . 
 
-                if max_val > best_score:
-                    best_score = max_val
-                    best_match = (max_loc, tW, tH)
-                    best_location = (int(max_loc[0] + tW / 2), int(max_loc[1] + tH / 2))
+Rectangle has 4 edges. Above , below , or upper , lower and then left and right . 
+Below edge we can find by following logic , look in column index A , from row 7 onwards 
+In which cell the word Summe is written bold. IF it fails to find the word Summe written bold , 
 
-        if best_location:
-            return best_location
+then look in the same column index A in the row starting from row 5 where a value is not there or if the value is same as of sheet name . The comparison with the sheet name should be case insensitive. 
+For example in the column index A , till row 9 there are continuous data and in row 10 there is no data. 
+In this case we define the row 9 as the below edge of the rectangle. 
+Left edge is the left most pane in excel sheet. 
+In the cell A1 is the title , which should be write in the title bar in powerpoint slide. 
+The value in cell A1 should be excluded from the boundary. 
+The top edge or the boundary can be identified by the following logic. 
+Identify in which row starting from column index B to F there is a value .That row will be the upper edge. 
+Then in order to identify the right edge, we can apply the following logic , 
+Look from the column index A , in which column index there is no value. 
+For example , in all the rows till column index T there will be a value. In column index U in no row there is a value , then we define the column index T in this example as the right most edge.
+Thus we identified the boundaries and thus the rectangular shape, 
+After getting this tabular data from a sheet in excel , then identify the value from cell T1 in that sheet. Extract the number from that value, that number corresponds to slide number in powerpoint . So please go to powerpoint and delete all the data in that particular slide number except the data which is in placeholder left or more closest  to the slide number which is in at bottommost right edge corner.  and then  create a title bar which should stay top leftmost most corner in the slide, The value to be written to it is the value from cell A1 from that excel sheet. 
+Then create an object field or object place holder in powerpoint , and then paste the table we found from excel on to the powerpoint object field or object placeholder. 
+The data or table we copied from excel data and pasted to the powerpoint , should get automatically updated as immediately when the data in the excel table changes. 
 
-        print(f"No match found for any of the images: {image_paths}")
-        return None
 
-    except Exception as e:
-        print(f"Failed to locate image using OpenCV: {e}")
-        return None
 
-def paste_data_to_excel(button_paths):
-    try:
-        time.sleep(15)
-        button_location = locate_image_opencv_multiscale(button_paths)
-        if button_location:
-            pyautogui.click(button_location)
-        pyautogui.hotkey('ctrl', 'home')
-        time.sleep(2)
-        pyautogui.hotkey('ctrl', 'v')
-        time.sleep(4)
-        pyautogui.hotkey('ctrl', 's')
-        time.sleep(8)
-        pyautogui.hotkey('alt', 'f4')
-    except Exception as e:
-        print(f"An error occurred during paste operation: {e}")
-
-def click_below_image(image_paths, offset_y=30):
-    try:
-        best_location = locate_image_opencv_multiscale(image_paths)
-        if best_location:
-            x, y = best_location
-            click_position = (x, y + offset_y)
-            pyautogui.moveTo(click_position[0], click_position[1], duration=1)
-            pyautogui.click()
-            print(f"Clicked at position: {click_position}")
-        else:
-            print(f"No high-confidence match found for any of the images: {image_paths}")
-    except Exception as e:
-        print(f"An error occurred: {e}")
-
-# Example usage
-datenart_button_path = r'U:\datenart_button.png'
-datenart_button_path1 = r'U:\datenart_button_1.png'
-datenart_button_path2 = r'U:\datenart_button_2.png'
-datenart_button_path3 = r'U:\datenart_button_3.png'
-
-image_paths = [datenart_button_path, datenart_button_path1, datenart_button_path2, datenart_button_path3]
-click_below_image(image_paths)
-pyautogui.hotkey('ctrl', 'a')
-pyautogui.press('backspace')
-pyautogui.write('I8', interval=0.1)
+ 
