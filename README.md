@@ -1,9 +1,16 @@
 import pdfplumber
 import pandas as pd
+from collections import defaultdict
 
-# File paths
 pdf_path = "your_file.pdf"
-excel_path = "output.xlsx"
+excel_path = "output_layout_preserved.xlsx"
+
+def group_words_by_line(words, y_tolerance=3):
+    lines = defaultdict(list)
+    for word in words:
+        y0 = round(word['top'] / y_tolerance) * y_tolerance
+        lines[y0].append(word)
+    return [sorted(line, key=lambda w: w['x0']) for y0, line in sorted(lines.items())]
 
 with pdfplumber.open(pdf_path) as pdf:
     writer = pd.ExcelWriter(excel_path, engine='openpyxl')
@@ -13,27 +20,26 @@ with pdfplumber.open(pdf_path) as pdf:
         tables = page.extract_tables()
 
         if tables:
-            # Combine all tables into one
+            # Prefer actual table extraction if available
             full_page_data = []
             for table in tables:
                 full_page_data.extend(table)
                 full_page_data.append([""])  # gap between tables
-
             df = pd.DataFrame(full_page_data)
-            df.to_excel(writer, sheet_name=sheet_name, index=False, header=False)
-
         else:
-            # If no tables, extract plain text and write each line in a row
-            text = page.extract_text()
-            if text:
-                lines = text.split('\n')
-                df = pd.DataFrame(lines)
-                df.to_excel(writer, sheet_name=sheet_name, index=False, header=False)
+            words = page.extract_words()
+            if words:
+                grouped_lines = group_words_by_line(words)
+                rows = []
+                for line in grouped_lines:
+                    row = [w['text'] for w in line]
+                    rows.append(row)
+                df = pd.DataFrame(rows)
             else:
-                # Create a blank sheet if even text is missing
                 df = pd.DataFrame([["No content found on this page"]])
-                df.to_excel(writer, sheet_name=sheet_name, index=False, header=False)
+
+        df.to_excel(writer, sheet_name=sheet_name, index=False, header=False)
 
     writer.close()
 
-print(f"✅ Done! Saved as '{excel_path}' with one sheet per PDF page.")
+print(f"✅ Excel saved with visual layout preserved: {excel_path}")
