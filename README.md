@@ -1,74 +1,91 @@
-import os
-import cv2
+import pdfplumber
 import pytesseract
+import cv2
+import pandas as pd
+import os
 from pdf2image import convert_from_path
 from openpyxl import Workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
-import pandas as pd
 
-# CONFIG
-pdf_path = r"C:/MyPDFs/your_file.pdf"
-image_output_dir = r"C:/MyPDFs/pdf_pages"
-excel_output_file = r"C:/MyPDFs/final_output.xlsx"
+# === CONFIG ===
+input_pdf = r"C:/MyPDFs/searchable.pdf"  # use ocrmypdf if needed
+fallback_images_dir = r"C:/MyPDFs/pdf_images"
+output_excel = r"C:/MyPDFs/final_output.xlsx"
 
-os.makedirs(image_output_dir, exist_ok=True)
-
-# STEP 1: Convert PDF to images
-print("📄 Converting PDF to images...")
-pages = convert_from_path(pdf_path, dpi=300)
-image_paths = []
-for i, page in enumerate(pages):
-    img_path = os.path.join(image_output_dir, f"page_{i+1}.png")
-    page.save(img_path, "PNG")
-    image_paths.append(img_path)
-    print(f"✅ Image saved: {img_path}")
-
-# STEP 2: Excel workbook init
+os.makedirs(fallback_images_dir, exist_ok=True)
 wb = Workbook()
 wb.remove(wb.active)
 
-# STEP 3: Process each image
-for i, image_path in enumerate(image_paths):
-    print(f"🔍 Processing: {image_path}")
+def extract_with_plumber(pdf_path):
+    with pdfplumber.open(pdf_path) as pdf:
+        for i, page in enumerate(pdf.pages):
+            print(f"🔍 Processing Page {i+1} with PDFPlumber...")
+            tables = page.extract_tables()
+            if not tables:
+                print("❗ No tables found, using OCR fallback.")
+                yield i, None
+            else:
+                max_table = max(tables, key=lambda t: len(t))  # Pick largest table
+                df = pd.DataFrame(max_table)
+                yield i, df
+
+def extract_with_tesseract_fallback(pdf_path, page_number):
+    images = convert_from_path(pdf_path, dpi=300, first_page=page_number+1, last_page=page_number+1)
+    image_path = os.path.join(fallback_images_dir, f"page_{page_number+1}.png")
+    images[0].save(image_path, "PNG")
+
     img = cv2.imread(image_path)
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DATAFRAME)
+    data = data[(data.conf != -1) & (data.text.notna())]
+    data = data[['left', 'top', 'text']]
 
-    # Run OCR with layout info
-    ocr_df = pytesseract.image_to_data(gray, output_type=pytesseract.Output.DATAFRAME)
-    ocr_df = ocr_df[(ocr_df.conf != -1) & (ocr_df.text.notna())].copy()
-    ocr_df = ocr_df[ocr_df.text.str.strip() != ""]
-    ocr_df = ocr_df.sort_values(by=["top", "left"])
-
-    # Group lines by vertical position
-    lines = []
-    current_line = []
-    last_top = None
-    threshold = 15  # Adjust if lines are splitting incorrectly
-
-    for _, row in ocr_df.iterrows():
-        if last_top is None or abs(row['top'] - last_top) <= threshold:
-            current_line.append(row)
-        else:
+    if data.empty:
+        return pd.DataFrame([["No text found"]])
+    
+    # --- Cluster similar to earlier method ---
+    def cluster_lines_into_table(data, col_threshold=50, row_threshold=10):
+        data = data.sort_values(by=['top', 'left'])
+        lines = []
+        current_line = []
+        prev_top = -1000
+        for _, row in data.iterrows():
+            if abs(row['top'] - prev_top) > row_threshold:
+                if current_line:
+                    lines.append(current_line)
+                current_line = [row]
+                prev_top = row['top']
+            else:
+                current_line.append(row)
+        if current_line:
             lines.append(current_line)
-            current_line = [row]
-        last_top = row['top']
-    if current_line:
-        lines.append(current_line)
+        all_lefts = sorted(set(int(item['left']) for line in lines for item in line))
+        col_bins = [all_lefts[0]]
+        for l in all_lefts[1:]:
+            if l - col_bins[-1] > col_threshold:
+                col_bins.append(l)
+        structured_rows = []
+        for line in lines:
+            row_dict = {}
+            for word in line:
+                col_idx = min(range(len(col_bins)), key=lambda i: abs(word['left'] - col_bins[i]))
+                row_dict[col_idx] = word['text']
+            row = [row_dict.get(i, "") for i in range(len(col_bins))]
+            structured_rows.append(row)
+        return pd.DataFrame(structured_rows)
 
-    # Convert lines to row-wise text
-    rows = []
-    for line in lines:
-        sorted_line = sorted(line, key=lambda x: x['left'])
-        row_texts = [word['text'] for word in sorted_line]
-        rows.append(row_texts)
+    return cluster_lines_into_table(data)
 
-    # Write to Excel
-    ws = wb.create_sheet(title=f"Page_{i+1}")
-    for row in rows:
+# === Run Extraction ===
+for i, df in extract_with_plumber(input_pdf):
+    if df is None:
+        df = extract_with_tesseract_fallback(input_pdf, i)
+
+    sheet_name = f"Page_{i+1}"
+    ws = wb.create_sheet(title=sheet_name)
+    for row in dataframe_to_rows(df, index=False, header=False):
         ws.append(row)
+    print(f"✅ Sheet added: {sheet_name}")
 
-    print(f"📊 Sheet created: Page_{i+1}")
-
-# Save Excel
-wb.save(excel_output_file)
-print(f"\n✅ DONE: Excel saved at {excel_output_file}")
+# === Save Excel ===
+wb.save(output_excel)
+print(f"\n🎉 All done! Excel saved to: {output_excel}")
