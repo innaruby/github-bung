@@ -1,3 +1,2 @@
-  if not config.startswith(LAYOUT_PARSER_MODEL_PREFIX):
-           ^^^^^^^^^^^^^^^^^
-AttributeError: 'NoneType' object has no attribute 'startswith'
+pip install "layoutparser[paddle]"
+pip install paddlepaddle -f https://www.paddlepaddle.org.cn/whl/linux/mkl/avx/stable.html
