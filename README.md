@@ -3,25 +3,22 @@ from pdf2image import convert_from_path
 import pytesseract
 import cv2
 import pandas as pd
+import numpy as np
 from openpyxl import Workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
-from sklearn.cluster import KMeans
-import numpy as np
 
-# Optional: Set Tesseract path (Windows only)
+# Optional: Set tesseract path (Windows only)
 # pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
 # === CONFIG ===
 pdf_path = r"C:/MyPDFs/your_file.pdf"
 image_output_dir = r"C:/MyPDFs/pdf_pages"
 excel_output_file = r"C:/MyPDFs/final_output.xlsx"
-dpi = 300
-max_columns = 10   # Max columns to guess for table structure
 
 # === STEP 1: Convert PDF pages to images ===
 os.makedirs(image_output_dir, exist_ok=True)
 print("📄 Converting PDF to images...")
-pages = convert_from_path(pdf_path, dpi=dpi)
+pages = convert_from_path(pdf_path, dpi=300)
 
 image_paths = []
 for i, page in enumerate(pages):
@@ -30,63 +27,72 @@ for i, page in enumerate(pages):
     image_paths.append(image_path)
     print(f"✅ Saved: {image_path}")
 
-# === STEP 2: Define helper function for column clustering ===
-def cluster_columns(words_df, max_columns=6):
-    if len(words_df) < max_columns:
-        max_columns = len(words_df)
-    x_coords = words_df['left'].values.reshape(-1, 1)
-    kmeans = KMeans(n_clusters=max_columns, n_init='auto', random_state=0).fit(x_coords)
-    words_df['col_id'] = kmeans.labels_
-    words_df = words_df.sort_values(by=['top', 'col_id'])
-    return words_df
+# === Helper function: Cluster OCR words into table-like layout ===
+def cluster_lines_into_table(data, col_threshold=50, row_threshold=10):
+    data = data.sort_values(by=['top', 'left'])
 
-# === STEP 3: Run OCR and build Excel ===
+    # Group words into lines based on vertical positions
+    lines = []
+    current_line = []
+    prev_top = -1000
+
+    for _, row in data.iterrows():
+        if abs(row['top'] - prev_top) > row_threshold:
+            if current_line:
+                lines.append(current_line)
+            current_line = [row]
+            prev_top = row['top']
+        else:
+            current_line.append(row)
+    if current_line:
+        lines.append(current_line)
+
+    # Identify potential column positions
+    all_lefts = sorted(set(int(item['left']) for line in lines for item in line))
+    all_lefts = np.array(all_lefts)
+    col_bins = [all_lefts[0]]
+    for l in all_lefts[1:]:
+        if l - col_bins[-1] > col_threshold:
+            col_bins.append(l)
+
+    # Map words into appropriate column bins
+    structured_rows = []
+    for line in lines:
+        row_dict = {}
+        for word in line:
+            col_idx = np.argmin([abs(word['left'] - c) for c in col_bins])
+            row_dict[col_idx] = word['text']
+        row = [row_dict.get(i, "") for i in range(len(col_bins))]
+        structured_rows.append(row)
+
+    return pd.DataFrame(structured_rows)
+
+# === STEP 2: OCR with layout detection and write to Excel ===
 wb = Workbook()
 wb.remove(wb.active)
 
 for i, image_path in enumerate(image_paths):
-    print(f"🔍 OCR on: {image_path}")
+    print(f"🔍 Processing OCR for: {image_path}")
     img = cv2.imread(image_path)
 
+    # Run Tesseract OCR with layout info
     data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DATAFRAME)
+
+    # Clean data
     data = data[(data.conf != -1) & (data.text.notna())]
-    data = data.sort_values(by=['top'])
+    data = data[['left', 'top', 'text']]  # Keep only required columns
 
-    # Group words by similar 'top' values into rows
-    rows = []
-    current_row = []
-    prev_top = None
-    line_threshold = 10  # Tweak this value if lines are merging/splitting incorrectly
+    if not data.empty:
+        df = cluster_lines_into_table(data)
+    else:
+        df = pd.DataFrame([["No text found"]])
 
-    for _, row in data.iterrows():
-        if prev_top is None or abs(row['top'] - prev_top) < line_threshold:
-            current_row.append(row)
-        else:
-            rows.append(pd.DataFrame(current_row))
-            current_row = [row]
-        prev_top = row['top']
-    if current_row:
-        rows.append(pd.DataFrame(current_row))
-
-    # Structure rows by clustering into columns
-    structured_data = []
-    for row_df in rows:
-        clustered = cluster_columns(row_df, max_columns)
-        line_text = clustered.sort_values('col_id')['text'].tolist()
-        structured_data.append(line_text)
-
-    # Normalize row lengths
-    max_len = max(len(r) for r in structured_data)
-    for r in structured_data:
-        r += [''] * (max_len - len(r))
-
-    df = pd.DataFrame(structured_data)
-
-    # Write to Excel sheet
+    # Create Excel sheet for this page
     sheet_name = f"Page_{i+1}"
     ws = wb.create_sheet(title=sheet_name)
     for row in dataframe_to_rows(df, index=False, header=False):
         ws.append(row)
+
     print(f"📄 Sheet created: {sheet_name}")
 
 # Save Excel workbook
