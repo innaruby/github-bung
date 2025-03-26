@@ -1,51 +1,63 @@
 import os
-import pdfplumber
+from pdf2image import convert_from_path
+import pytesseract
+import cv2
 import pandas as pd
 from openpyxl import Workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
 
-# -------- CONFIG --------
-pdf_path = "your_file.pdf"              # Your input PDF file
-final_excel_path = "final_output.xlsx"  # Final Excel output file
+# Optional: Set Tesseract path (Windows only)
+# pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
-# -------- STEP 0: Count Pages Using pdfplumber --------
-def get_pdf_page_count(pdf_file):
-    with pdfplumber.open(pdf_file) as pdf:
-        return len(pdf.pages)
+# === CONFIG ===
+pdf_path = r"C:/MyPDFs/your_file.pdf"
+image_output_dir = r"C:/MyPDFs/pdf_pages"
+excel_output_file = r"C:/MyPDFs/final_output.xlsx"
 
-# -------- STEP 1: PDF → Excel (Preserve Layout) --------
-def convert_pdf_to_excel(pdf_path, excel_path):
-    wb = Workbook()
-    wb.remove(wb.active)  # Remove default sheet
+# === STEP 1: Convert PDF pages to images ===
+os.makedirs(image_output_dir, exist_ok=True)
+print("📄 Converting PDF to images...")
+pages = convert_from_path(pdf_path, dpi=300)
 
-    with pdfplumber.open(pdf_path) as pdf:
-        for i, page in enumerate(pdf.pages):
-            text = page.extract_text()
-            if not text:
-                print(f"⚠️ No text found on page {i+1}. Skipping.")
-                continue
+image_paths = []
+for i, page in enumerate(pages):
+    image_path = os.path.join(image_output_dir, f"page_{i+1}.png")
+    page.save(image_path, "PNG")
+    image_paths.append(image_path)
+    print(f"✅ Saved: {image_path}")
 
-            # Split text into lines and create a DataFrame
-            lines = text.split('\n')
-            df = pd.DataFrame(lines, columns=["Content"])
+# === STEP 2: Run OCR with layout detection and write to Excel ===
+wb = Workbook()
+wb.remove(wb.active)
 
-            # Create a new sheet for each page
-            sheet_name = f"Page_{i+1}"
-            ws = wb.create_sheet(title=sheet_name)
+for i, image_path in enumerate(image_paths):
+    print(f"🔍 Processing OCR for: {image_path}")
+    img = cv2.imread(image_path)
 
-            # Write DataFrame to Excel
-            for r in dataframe_to_rows(df, index=False, header=False):
-                ws.append(r)
+    # Run Tesseract OCR with layout info
+    data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DATAFRAME)
 
-            print(f"📄 Added sheet: {sheet_name}")
+    # Clean data
+    data = data[(data.conf != -1) & (data.text.notna())]
 
-    wb.save(excel_path)
-    print(f"✅ Excel saved at: {excel_path}")
+    # Group by block/paragraph/line
+    grouped = data.groupby(['block_num', 'par_num', 'line_num'])
 
-# -------- RUN THE PIPELINE --------
-if __name__ == "__main__":
-    if not os.path.exists(pdf_path):
-        print(f"❌ PDF not found: {pdf_path}")
-    else:
-        page_count = get_pdf_page_count(pdf_path)
-        convert_pdf_to_excel(pdf_path, final_excel_path)
+    structured_rows = []
+    for _, line in grouped:
+        line_words = line.sort_values('left')['text'].tolist()
+        structured_rows.append(line_words)
+
+    df = pd.DataFrame(structured_rows)
+
+    # Create Excel sheet for this page
+    sheet_name = f"Page_{i+1}"
+    ws = wb.create_sheet(title=sheet_name)
+    for row in dataframe_to_rows(df, index=False, header=False):
+        ws.append(row)
+
+    print(f"📄 Sheet created: {sheet_name}")
+
+# Save Excel workbook
+wb.save(excel_output_file)
+print(f"\n✅ Done! Excel saved at: {excel_output_file}")
