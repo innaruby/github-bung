@@ -1,8 +1,8 @@
 import os
-from pdf2image import convert_from_path
-import pytesseract
 import cv2
+import pytesseract
 import pandas as pd
+from pdf2image import convert_from_path
 from openpyxl import Workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
 
@@ -11,94 +11,73 @@ pdf_path = r"C:/MyPDFs/your_file.pdf"
 image_output_dir = r"C:/MyPDFs/pdf_pages"
 excel_output_file = r"C:/MyPDFs/final_output.xlsx"
 
-# Optional: Tesseract path (for Windows)
-# pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-
 os.makedirs(image_output_dir, exist_ok=True)
 
-# === STEP 1: Convert PDF to images ===
+# === Convert PDF to images ===
 print("📄 Converting PDF to images...")
 pages = convert_from_path(pdf_path, dpi=300)
 image_paths = []
 for i, page in enumerate(pages):
-    image_path = os.path.join(image_output_dir, f"page_{i+1}.png")
-    page.save(image_path, "PNG")
-    image_paths.append(image_path)
-    print(f"✅ Saved: {image_path}")
+    img_path = os.path.join(image_output_dir, f"page_{i+1}.png")
+    page.save(img_path, "PNG")
+    image_paths.append(img_path)
+    print(f"✅ Saved: {img_path}")
 
-# === Utility: layout-aware clustering ===
-def extract_aligned_table(data, y_threshold=10, x_tolerance=25):
-    data = data.sort_values(by=["top", "left"])
-    rows = []
-    current_row = []
-    last_top = None
-
-    # Step 1: Group into lines
-    for _, word in data.iterrows():
-        if last_top is None or abs(word["top"] - last_top) <= y_threshold:
-            current_row.append(word)
-        else:
-            rows.append(current_row)
-            current_row = [word]
-        last_top = word["top"]
-    if current_row:
-        rows.append(current_row)
-
-    # Step 2: Collect all column positions
-    all_lefts = sorted(set(word["left"] for row in rows for word in row))
-
-    # Step 3: Cluster `left` positions into columns
-    column_bins = []
-    for pos in all_lefts:
-        for b in column_bins:
-            if abs(pos - b) <= x_tolerance:
-                break
-        else:
-            column_bins.append(pos)
-    column_bins.sort()
-
-    # Step 4: Align words to nearest column
-    structured_rows = []
-    for row in rows:
-        aligned = [""] * len(column_bins)
-        for word in row:
-            for i, col_pos in enumerate(column_bins):
-                if abs(word["left"] - col_pos) <= x_tolerance:
-                    aligned[i] += (" " + word["text"]).strip()
-                    break
-        structured_rows.append(aligned)
-
-    return structured_rows
-
-# === STEP 2: OCR and layout → Excel ===
+# === Excel init ===
 wb = Workbook()
 wb.remove(wb.active)
 
-for i, image_path in enumerate(image_paths):
-    print(f"🔍 OCR: {image_path}")
+# === Smart Text Structuring Function ===
+def extract_structured_text(image_path):
     img = cv2.imread(image_path)
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-    ocr_data = pytesseract.image_to_data(
-        gray, config="--oem 1 --psm 6", output_type=pytesseract.Output.DATAFRAME
-    )
-    ocr_data = ocr_data[(ocr_data.conf != -1) & (ocr_data.text.notna())]
+    # Get OCR output with bounding boxes
+    ocr_df = pytesseract.image_to_data(gray, output_type=pytesseract.Output.DATAFRAME)
+    ocr_df = ocr_df[(ocr_df.conf != -1) & (ocr_df.text.notna())].copy()
+    ocr_df = ocr_df[ocr_df.text.str.strip() != ""]
 
-    if ocr_data.empty:
-        print(f"⚠️ No text found on page {i+1}")
-        continue
+    # Sort by top -> left
+    ocr_df = ocr_df.sort_values(by=['top', 'left'])
 
-    structured = extract_aligned_table(ocr_data)
-    df = pd.DataFrame(structured)
-    df = df.replace('', pd.NA).dropna(how='all', axis=1)
+    # === Group lines using vertical (top) proximity ===
+    rows = []
+    current_row = []
+    line_threshold = 15
+    prev_top = None
 
-    sheet_name = f"Page_{i+1}"
-    ws = wb.create_sheet(title=sheet_name)
+    for _, row in ocr_df.iterrows():
+        if prev_top is None or abs(row['top'] - prev_top) < line_threshold:
+            current_row.append(row)
+        else:
+            rows.append(current_row)
+            current_row = [row]
+        prev_top = row['top']
+    if current_row:
+        rows.append(current_row)
+
+    # === Convert to structured rows of text, aligned by left coordinate ===
+    structured_data = []
+    for row in rows:
+        row_df = pd.DataFrame(row)
+        row_df = pd.DataFrame(row) if not isinstance(row, pd.DataFrame) else row
+        line = row_df.sort_values(by='left')['text'].tolist()
+        structured_data.append(line)
+
+    return pd.DataFrame(structured_data)
+
+# === Process Each Page and Save to Excel ===
+for i, image_path in enumerate(image_paths):
+    print(f"🔍 Structuring data in: {image_path}")
+    df = extract_structured_text(image_path)
+
+    # Create Excel Sheet
+    ws = wb.create_sheet(title=f"Page_{i+1}")
     for row in dataframe_to_rows(df, index=False, header=False):
         ws.append(row)
 
-    print(f"📄 Sheet created: {sheet_name}")
+    print(f"📄 Structured sheet saved: Page_{i+1}")
 
-# === Save Excel ===
+# Save Excel
 wb.save(excel_output_file)
-print(f"\n✅ Done! Excel saved at: {excel_output_file}")
+print(f"\n✅ Done! Excel with smart structure saved at: {excel_output_file}")
