@@ -6,7 +6,7 @@ import pandas as pd
 from openpyxl import Workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
 
-# Optional: Set Tesseract path (Windows only)
+# Optional: Set Tesseract path (for Windows)
 # pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
 # === CONFIG ===
@@ -26,31 +26,57 @@ for i, page in enumerate(pages):
     image_paths.append(image_path)
     print(f"✅ Saved: {image_path}")
 
-# === STEP 2: Run OCR with layout detection and write to Excel ===
+# === Utility: Group words into rows based on Y-position ===
+def cluster_to_rows(data, y_threshold=10):
+    data = data.sort_values(by='top')
+    rows = []
+    current_row = []
+    last_top = None
+
+    for _, row in data.iterrows():
+        if last_top is None or abs(row['top'] - last_top) <= y_threshold:
+            current_row.append(row)
+        else:
+            rows.append(current_row)
+            current_row = [row]
+        last_top = row['top']
+
+    if current_row:
+        rows.append(current_row)
+    return rows
+
+# === STEP 2: Perform OCR and write to Excel ===
 wb = Workbook()
-wb.remove(wb.active)
+wb.remove(wb.active)  # Remove default sheet
 
 for i, image_path in enumerate(image_paths):
     print(f"🔍 Processing OCR for: {image_path}")
     img = cv2.imread(image_path)
 
-    # Run Tesseract OCR with layout info
-    data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DATAFRAME)
+    # Run OCR
+    config = r'--oem 1 --psm 6'  # Assumes block of text
+    data = pytesseract.image_to_data(img, config=config, output_type=pytesseract.Output.DATAFRAME)
 
-    # Clean data
+    # Clean up data
     data = data[(data.conf != -1) & (data.text.notna())]
 
-    # Group by block/paragraph/line
-    grouped = data.groupby(['block_num', 'par_num', 'line_num'])
+    if data.empty:
+        print(f"⚠️ No text detected on {image_path}")
+        continue
 
+    # Cluster words into rows
+    clustered_rows = cluster_to_rows(data, y_threshold=10)
+
+    # Sort each row by horizontal position (left)
     structured_rows = []
-    for _, line in grouped:
-        line_words = line.sort_values('left')['text'].tolist()
-        structured_rows.append(line_words)
+    for row in clustered_rows:
+        sorted_row = sorted(row, key=lambda r: r['left'])
+        row_text = [r['text'] for r in sorted_row]
+        structured_rows.append(row_text)
 
     df = pd.DataFrame(structured_rows)
 
-    # Create Excel sheet for this page
+    # Write to Excel
     sheet_name = f"Page_{i+1}"
     ws = wb.create_sheet(title=sheet_name)
     for row in dataframe_to_rows(df, index=False, header=False):
@@ -58,6 +84,6 @@ for i, image_path in enumerate(image_paths):
 
     print(f"📄 Sheet created: {sheet_name}")
 
-# Save Excel workbook
+# Save workbook
 wb.save(excel_output_file)
 print(f"\n✅ Done! Excel saved at: {excel_output_file}")
