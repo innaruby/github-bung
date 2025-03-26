@@ -1,7 +1,11 @@
-    self.value = value
-    ^^^^^^^^^^
-  File \openpyxl\cell\cell.py", line 218, in value
-    self._bind_value(value)
-  File "\openpyxl\cell\cell.py", line 187, in _bind_value
-    raise ValueError("Cannot convert {0!r} to Excel".format(value))
-ValueError: Cannot convert <NA> to Excel
+structured = extract_aligned_table(ocr_data)
+df = pd.DataFrame(structured)
+
+# Replace empty strings with NaN, drop empty columns, convert pd.NA to None
+df = df.replace('', pd.NA).dropna(how='all', axis=1)
+df = df.where(pd.notnull(df), None)  # ✅ fix for openpyxl write issue
+
+sheet_name = f"Page_{i+1}"
+ws = wb.create_sheet(title=sheet_name)
+for row in dataframe_to_rows(df, index=False, header=False):
+    ws.append(row)
