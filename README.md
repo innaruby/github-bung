@@ -1,80 +1,63 @@
 import os
-import cv2
-import pytesseract
-from pdf2image import convert_from_path
-from docx import Document
+from pdf2docx import Converter
+import PyPDF2
+import docx
 from openpyxl import Workbook
-from openpyxl.utils.dataframe import dataframe_to_rows
-import pandas as pd
 
 # === CONFIGURATION ===
-pdf_path = "C:/MyPDFs/input.pdf"
-output_folder = "C:/MyPDFs/"
-word_path = os.path.join(output_folder, "output.docx")
-excel_path = os.path.join(output_folder, "output.xlsx")
-image_folder = os.path.join(output_folder, "images")
+# Path to your PDF file
+pdf_file = r"C:\MyPDFs\your_file.pdf"
+# Temporary folder to store per‑page DOCX files
+temp_docx_dir = r"C:\MyPDFs\temp_docx"
+# Final Excel output file
+excel_output_file = r"C:\MyPDFs\final_output.xlsx"
 
-os.makedirs(image_folder, exist_ok=True)
+# Create temporary directory if it does not exist
+os.makedirs(temp_docx_dir, exist_ok=True)
 
-# === STEP 1: Convert PDF to Images ===
-pages = convert_from_path(pdf_path, dpi=300)
-image_paths = []
-for i, page in enumerate(pages):
-    img_path = os.path.join(image_folder, f"page_{i+1}.png")
-    page.save(img_path, "PNG")
-    image_paths.append(img_path)
+# === STEP 1: DETERMINE PDF PAGE COUNT ===
+with open(pdf_file, 'rb') as f:
+    reader = PyPDF2.PdfFileReader(f)
+    total_pages = reader.numPages
 
-# === STEP 2: OCR and Create Word with One Page per PDF Page ===
-doc = Document()
+print(f"[INFO] Total pages in PDF: {total_pages}")
 
-def ocr_image_to_lines(image_path):
-    img = cv2.imread(image_path)
-    ocr_data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DATAFRAME)
-    ocr_data = ocr_data[(ocr_data.conf != -1) & (ocr_data.text.notna())]
-    ocr_data = ocr_data[['left', 'top', 'text']]
-    ocr_data = ocr_data.sort_values(by=['top', 'left'])
+# === STEP 2: CONVERT EACH PDF PAGE TO A SEPARATE DOCX FILE ===
+docx_files = []
+for i in range(total_pages):
+    output_docx = os.path.join(temp_docx_dir, f"page_{i+1}.docx")
+    print(f"[INFO] Converting page {i+1} to DOCX: {output_docx}...")
+    # Create Converter instance for the PDF file
+    cv = Converter(pdf_file)
+    # Convert only page i (pages are zero-indexed)
+    cv.convert(output_docx, start=i, end=i)
+    cv.close()
+    docx_files.append(output_docx)
+print("[SUCCESS] PDF-to-DOCX conversion complete.")
 
-    # Reconstruct lines by grouping close top coordinates
-    lines = []
-    current_line = []
-    prev_top = -1000
-
-    for _, row in ocr_data.iterrows():
-        if abs(row['top'] - prev_top) > 10:
-            if current_line:
-                lines.append(current_line)
-            current_line = [row['text']]
-            prev_top = row['top']
-        else:
-            current_line.append(row['text'])
-
-    if current_line:
-        lines.append(current_line)
-
-    return [" ".join(line) for line in lines]
-
-all_page_texts = []
-
-for img_path in image_paths:
-    lines = ocr_image_to_lines(img_path)
-    all_page_texts.append(lines)
-
-    for line in lines:
-        doc.add_paragraph(line)
-    doc.add_page_break()
-
-doc.save(word_path)
-print(f"✅ Word document saved to: {word_path}")
-
-# === STEP 3: Convert Each Word "Page" to a Sheet in Excel ===
+# === STEP 3: CREATE EXCEL FILE WITH EACH DOCX CONTROLLING A SEPARATE SHEET ===
 wb = Workbook()
-wb.remove(wb.active)
+# Remove the default created sheet
+default_sheet = wb.active
+wb.remove(default_sheet)
 
-for i, lines in enumerate(all_page_texts):
-    df = pd.DataFrame([[line] for line in lines])
-    ws = wb.create_sheet(title=f"Page_{i+1}")
-    for row in dataframe_to_rows(df, index=False, header=False):
-        ws.append(row)
+for idx, docx_file in enumerate(docx_files, start=1):
+    print(f"[INFO] Processing DOCX: {docx_file} ...")
+    document = docx.Document(docx_file)
+    
+    # Create a new worksheet for the current page; name it accordingly.
+    sheet_name = f"Page_{idx}"
+    ws = wb.create_sheet(title=sheet_name)
+    
+    # Start putting content from cell A1.
+    row = 1
+    for para in document.paragraphs:
+        text = para.text.strip()
+        if text:  # Only write non-empty lines
+            ws.cell(row=row, column=1, value=text)
+            row += 1
+    print(f"[SUCCESS] Content from {docx_file} copied to Excel sheet '{sheet_name}'.")
 
-wb.save(excel_path)
-print(f"✅ Excel document saved to: {excel_path}")
+# Save the Excel workbook
+wb.save(excel_output_file)
+print(f"[FINAL] Excel workbook saved at: {excel_output_file}")
