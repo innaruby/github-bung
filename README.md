@@ -1,87 +1,60 @@
 import os
 import cv2
-import pandas as pd
-import numpy as np
-from pdf2image import convert_from_path
 import pytesseract
+from pdf2image import convert_from_path
+from docx import Document
+from docx.shared import Inches
 from openpyxl import Workbook
-from openpyxl.utils.dataframe import dataframe_to_rows
 
-# === CONFIG ===
+# === CONFIGURATION ===
 pdf_path = r"C:/MyPDFs/your_file.pdf"
-image_dir = r"C:/MyPDFs/pdf_images"
-output_excel = r"C:/MyPDFs/structured_output.xlsx"
-os.makedirs(image_dir, exist_ok=True)
+image_output_dir = r"C:/MyPDFs/pdf_pages"
+word_output_path = r"C:/MyPDFs/converted.docx"
+excel_output_path = r"C:/MyPDFs/final_output.xlsx"
 
-# === STEP 1: Convert PDF to images ===
-print("📄 Converting PDF pages to images...")
-images = convert_from_path(pdf_path, dpi=300)
+os.makedirs(image_output_dir, exist_ok=True)
+
+# === STEP 1: Convert PDF pages to images ===
+print("📄 Converting PDF to images...")
+pages = convert_from_path(pdf_path, dpi=300)
 image_paths = []
-for i, page in enumerate(images):
-    image_path = os.path.join(image_dir, f"page_{i+1}.png")
-    page.save(image_path, "PNG")
-    image_paths.append(image_path)
-    print(f"✅ Saved: {image_path}")
+for i, page in enumerate(pages):
+    img_path = os.path.join(image_output_dir, f"page_{i+1}.png")
+    page.save(img_path, "PNG")
+    image_paths.append(img_path)
+    print(f"✅ Saved: {img_path}")
 
-# === STEP 2: Function to layout-align OCR results ===
-def reconstruct_layout_from_ocr(ocr_data, row_thresh=10, col_thresh=50):
-    ocr_data = ocr_data[(ocr_data.conf != -1) & (ocr_data.text.notna())]
-    if ocr_data.empty:
-        return pd.DataFrame([["No text found"]])
+# === STEP 2: Create Word file with one image per page ===
+print("\n📝 Creating Word document...")
+doc = Document()
 
-    ocr_data = ocr_data[['left', 'top', 'text']]
-    ocr_data = ocr_data.sort_values(by=['top', 'left'])
+for img_path in image_paths:
+    doc.add_picture(img_path, width=Inches(6.5))  # Fit within margins
+    doc.add_page_break()
 
-    # === Group by visual rows ===
-    lines = []
-    current_line = []
-    prev_top = -1000
-    for _, row in ocr_data.iterrows():
-        if abs(row['top'] - prev_top) > row_thresh:
-            if current_line:
-                lines.append(current_line)
-            current_line = [row]
-            prev_top = row['top']
-        else:
-            current_line.append(row)
-    if current_line:
-        lines.append(current_line)
+doc.save(word_output_path)
+print(f"✅ Word file created: {word_output_path}")
 
-    # === Estimate column anchors ===
-    all_lefts = sorted(set(int(item['left']) for line in lines for item in line))
-    all_lefts = np.array(all_lefts)
-    col_bins = [all_lefts[0]]
-    for l in all_lefts[1:]:
-        if l - col_bins[-1] > col_thresh:
-            col_bins.append(l)
-
-    # === Build structured rows ===
-    structured_rows = []
-    for line in lines:
-        row_dict = {}
-        for word in line:
-            col_idx = np.argmin([abs(word['left'] - c) for c in col_bins])
-            row_dict[col_idx] = word['text']
-        row = [row_dict.get(i, "") for i in range(len(col_bins))]
-        structured_rows.append(row)
-
-    return pd.DataFrame(structured_rows)
-
-# === STEP 3: Process each image ===
+# === STEP 3: Extract content from images (for each Word page) and write to Excel ===
+print("\n📊 Extracting text for Excel...")
 wb = Workbook()
 wb.remove(wb.active)
 
 for i, img_path in enumerate(image_paths):
-    print(f"🔍 OCR Processing Page {i+1}")
     img = cv2.imread(img_path)
-    data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DATAFRAME)
+    text = pytesseract.image_to_string(img, config="--psm 6")
 
-    df = reconstruct_layout_from_ocr(data)
-    ws = wb.create_sheet(title=f"Page_{i+1}")
-    for row in dataframe_to_rows(df, index=False, header=False):
-        ws.append(row)
-    print(f"✅ Page {i+1} structured and added to Excel")
+    # Split into rows and columns (simple line split)
+    lines = text.strip().split("\n")
+    data = [line.split() for line in lines if line.strip()]
 
-# === STEP 4: Save Excel ===
-wb.save(output_excel)
-print(f"\n🎉 All done! Excel saved to: {output_excel}")
+    # Write to Excel
+    sheet = wb.create_sheet(title=f"Page_{i+1}")
+    for r_idx, row in enumerate(data, start=1):
+        for c_idx, cell in enumerate(row, start=1):
+            sheet.cell(row=r_idx, column=c_idx, value=cell)
+
+    print(f"✅ Sheet created: Page_{i+1}")
+
+wb.save(excel_output_path)
+print(f"\n✅ Excel file saved at: {excel_output_path}")
