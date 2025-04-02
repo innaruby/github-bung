@@ -1,442 +1,727 @@
-{
- "cells": [
-  {
-   "cell_type": "code",
-   "execution_count": 1,
-   "id": "1c37c3d9-0eed-4203-9310-5d8d63a76d19",
-   "metadata": {
-    "hide_input": false,
-    "jupyter": {
-     "source_hidden": true
-    }
-   },
-   "outputs": [],
-   "source": [
-    "#importing required moduls\n",
-    "import pandas as pd\n",
-    "import ipywidgets as widgets\n",
-    "from IPython.display import display\n",
-    "import traceback\n",
-    "from processing import open_an_excel, get_msr_output_format, get_product_MSR_pos_alignment, create_report, update_target_excel_xlwings, custom_formatter"
-   ]
-  },
-  {
-   "cell_type": "markdown",
-   "id": "602919d4-1dc3-4dcb-8d42-2b33b8fdc494",
-   "metadata": {
-    "hide_input": true
-   },
-   "source": [
-    "## User Instructions\n",
-    "\n",
-    "#### 1. Click on \"Cell\" -> \"Run all\" in the above menu to show User Interface\n",
-    "#### 2. Click on the \"Get support file\"  button below -> select the excel file in the dialog box with the product tree & the MSR - cost center assignment sheets\n",
-    "#### 3. Select MSR report output format in the dropdown\n",
-    "#### 4 Check/uncheck applicable cost centers via the checkboxes\n",
-    "#### 5. Click on \"Get Data File\" button below -> select the excel file in the dialog box with the KUKA report\n",
-    "#### 6. Optionally change if you want to see a summary or broken down to cost centers"
-   ]
-  },
-  {
-   "cell_type": "code",
-   "execution_count": 2,
-   "id": "ccd66662-40f0-45f3-9dca-10fafafc9af3",
-   "metadata": {
-    "hide_input": false,
-    "jupyter": {
-     "source_hidden": true
-    },
-    "scrolled": true
-   },
-   "outputs": [
-    {
-     "data": {
-      "application/vnd.jupyter.widget-view+json": {
-       "model_id": "e2b518afa53f46efbeefffa37af5b8dc",
-       "version_major": 2,
-       "version_minor": 0
-      },
-      "text/plain": [
-       "VBox(children=(HBox(children=(VBox(children=(Button(description='Get Input File', style=ButtonStyle()),), layo…"
-      ]
-     },
-     "metadata": {},
-     "output_type": "display_data"
-    }
-   ],
-   "source": [
-    "#----------------------------------------------------------------------\n",
-    "# 1) CREATE WIDGETS + OUTPUT\n",
-    "# ---------------------------------------------------------------------\n",
-    "\n",
-    "# 1. the input file buttons\n",
-    "#supp_file_button = widgets.Button(description=\"Get Support File\")\n",
-    "input_file_button = widgets.Button(description=\"Get Input File\")\n",
-    "recalculate_button = widgets.Button(description=\"Recalculate\", layout=widgets.Layout(margin='1'))\n",
-    "\n",
-    "element_layout = widgets.Layout(\n",
-    "    width='100%',\n",
-    "    min_width='90px',\n",
-    "    margin ='0px 0px 0px 0px'\n",
-    ")\n",
-    "\n",
-    "# 2. the selectors\n",
-    "gesamt_sheet_selector = widgets.Dropdown(options=[],layout=element_layout)\n",
-    "\n",
-    "fg_sheet_selector = widgets.Dropdown(options=[],layout=element_layout)\n",
-    "\n",
-    "format_selector = widgets.Dropdown(options=[], layout=element_layout)\n",
-    "\n",
-    "report_type_selector = widgets.ToggleButtons(\n",
-    "    options=['Summary', 'Detailed'],\n",
-    "    button_style='',\n",
-    "    tooltips=['All the cost centers will be summed together to one column', 'The Positions will be presented parallel for each cost center'],\n",
-    ")\n",
-    "\n",
-    "# 3. the incuded cost centers\n",
-    "checkboxes_container = widgets.HBox(layout=widgets.Layout(display='flex', justify_content='flex-start',align_content='flex-start'))\n",
-    "\n",
-    "# 4. the section for the target MSR file\n",
-    "target_column_input = widgets.Text(\n",
-    "    value= pd.Timestamp.now().date().strftime('%m/%Y'),\n",
-    "    disabled=False,\n",
-    "    layout=element_layout,\n",
-    "    )\n",
-    "\n",
-    "date_row_input = widgets.IntText(value= 8,disabled=False,layout=element_layout)\n",
-    "\n",
-    "data_row_input = widgets.IntText(value= 115,disabled=False,layout=element_layout)\n",
-    "\n",
-    "target_file_button = widgets.Button(description=\"Update MSR File\")\n",
-    "\n",
-    "data_output_area = widgets.Output()\n",
-    "export_output_area = widgets.Output()\n",
-    "\n",
-    "# ---------------------------------------------------------------------\n",
-    "# 2) FUNCTIONS TO CALL ON WIDGET CHANGES\n",
-    "# ---------------------------------------------------------------------\n",
-    "# 1. Function that reads in the files and updates the format selector widget\n",
-    "def input_file_button_clicked(b):\n",
-    "    try: \n",
-    "        with data_output_area:\n",
-    "            data_output_area.clear_output()\n",
-    "            \n",
-    "            input_xl = open_an_excel(titlestr='Browse for the ProduktBaum/Kostenstelle file')\n",
-    "            if not input_xl:\n",
-    "                print('No input file selected')\n",
-    "                gesamt_sheet_selector.options = []\n",
-    "                fg_sheet_selector.options = []\n",
-    "                format_selector.options = []\n",
-    "                input_file_button.input_xl = None\n",
-    "            else:\n",
-    "                input_file_button.input_xl = input_xl\n",
-    "                print('Report sheet read in...')\n",
-    "            \n",
-    "                current_pt = get_product_MSR_pos_alignment(input_xl, 'Produktbaum')\n",
-    "                if current_pt:\n",
-    "                    input_file_button.producttree = current_pt\n",
-    "                    print('Product tree read in...')\n",
-    "                else:\n",
-    "                    input_file_button.producttree = None\n",
-    "            \n",
-    "                local_ccs = get_msr_output_format(input_xl,\"Kostenstellen\")\n",
-    "                if local_ccs: \n",
-    "                    format_selector.ccs = local_ccs\n",
-    "                    format_selector.options = list(local_ccs.keys())\n",
-    "                    format_selector.value = format_selector.options[0]\n",
-    "                    print('MSR-Cost centers read in...')\n",
-    "                else:\n",
-    "                    format_selector.ccs = local_ccs = None\n",
-    "                    format_selector.options = []\n",
-    "                    format_selector.value = None\n",
-    "            \n",
-    "                gesamt_sheet_selector.options = [sheet for sheet in input_xl.sheet_names if \"KUKA-Gesamt\" in sheet]\n",
-    "                if len(gesamt_sheet_selector.options)==0:\n",
-    "                    print('No sheet with the expression \"KUKA-Gesamt\" in the sheet name in file')\n",
-    "                    gesamt_sheet_selector.value = None\n",
-    "                else:\n",
-    "                    gesamt_sheet_selector.value = gesamt_sheet_selector.options[-1]\n",
-    "            \n",
-    "                fg_sheet_selector.options = [sheet for sheet in input_xl.sheet_names if \"KUKA-Finanz\" in sheet]\n",
-    "                if len(fg_sheet_selector.options)==0:\n",
-    "                    print('No sheet with the expression \"KUKA-Finanz\" in the sheet name in file')\n",
-    "                    fg_sheet_selector.value = None\n",
-    "                else:\n",
-    "                    fg_sheet_selector.value = fg_sheet_selector.options[-1]\n",
-    "\n",
-    "            generate_report()\n",
-    "    except Exception as e:\n",
-    "        with data_output_area:\n",
-    "            data_output_area.clear_output()\n",
-    "            print(\"Error reading the input file:\", e, traceback.format_exc())\n",
-    "\n",
-    "# 2. Function that regenerates checkboxes on format selector dropdown change\n",
-    "def regenerate_checkboxes(change):\n",
-    "    \"\"\"Rebuild checkboxes when the selected dropdown value changes.\"\"\"\n",
-    "    # Only act if the 'value' changed\n",
-    "    if change['type'] == 'change' and change['name'] == 'value':\n",
-    "        if change['new'] is None:\n",
-    "            checkboxes_container.children = []\n",
-    "            return\n",
-    "        selected_key = change['new']\n",
-    "        \n",
-    "        # Retrieve ccs from the widget attribute\n",
-    "        local_ccs = format_selector.ccs\n",
-    "        \n",
-    "        # Build a new list of checkboxes for the selected key\n",
-    "        new_checkboxes = []\n",
-    "        for val in local_ccs[selected_key]:\n",
-    "            cb = widgets.Checkbox(\n",
-    "                value=True,\n",
-    "                description=str(val),\n",
-    "                indent=False\n",
-    "            )\n",
-    "            new_checkboxes.append(cb)\n",
-    "        \n",
-    "        # Replace old checkboxes in the container with the new ones\n",
-    "        checkboxes_container.children = new_checkboxes\n",
-    "\n",
-    "def get_checked_checkbox_list():\n",
-    "    checked_values = []\n",
-    "    for cb in checkboxes_container.children:\n",
-    "        if cb.value:  # if checkbox is checked\n",
-    "            checked_values.append(int(cb.description))\n",
-    "    return checked_values\n",
-    "\n",
-    "def on_target_file_button_clicked(b):\n",
-    "    try:\n",
-    "        if not hasattr(data_output_area, 'result'):\n",
-    "            print(\"No data has been loaded yet.\")\n",
-    "            return\n",
-    "        data_input = data_output_area.result\n",
-    "        if isinstance(data_input,pd.Series):\n",
-    "            used_cost_centers = [data_input.name]\n",
-    "        elif isinstance(data_input,pd.DataFrame):\n",
-    "            used_cost_centers = data_input.columns.tolist()\n",
-    "        else:\n",
-    "            print(\"No proper data available.\")\n",
-    "            return\n",
-    "        with export_output_area:\n",
-    "            export_output_area.clear_output()\n",
-    "            update_target_excel_xlwings(\n",
-    "                data_input=data_input,\n",
-    "                cost_centers_used=used_cost_centers,\n",
-    "                target_column=target_column_input.value,\n",
-    "                date_row=date_row_input.value,\n",
-    "                data_row=data_row_input.value,\n",
-    "                titlestr='Please select the MSR file to insert the data into'\n",
-    "            )\n",
-    "        \n",
-    "    except Exception as e:\n",
-    "        with export_output_area:\n",
-    "            export_output_area.clear_output()\n",
-    "            print(\"Error exporting the data into the MSR file:\", e, traceback.format_exc())\n",
-    "            \n",
-    "def on_report_type_change(change):\n",
-    "    if change[\"name\"] == \"value\":\n",
-    "        generate_report()\n",
-    "\n",
-    "def on_recalc_button_clicked(b):\n",
-    "    generate_report()\n",
-    "    \n",
-    "def generate_report():\n",
-    "    with data_output_area:\n",
-    "        data_output_area.clear_output()\n",
-    "        try:\n",
-    "            # If user hasn't loaded a file yet, there's nothing to process\n",
-    "            if not hasattr(input_file_button, 'input_xl'):\n",
-    "                print(\"No data file loaded yet.\")\n",
-    "                return\n",
-    "            \n",
-    "            # \"report_xl\" is the Excel file stored\n",
-    "            report_xl = input_file_button.input_xl\n",
-    "            \n",
-    "            product_tree = getattr(input_file_button, 'producttree', None)\n",
-    "            if product_tree is None:\n",
-    "                print(\"No product tree loaded yet.\")\n",
-    "                return\n",
-    "            \n",
-    "            used_cost_centers = get_checked_checkbox_list()\n",
-    "            \n",
-    "            report_type = report_type_selector.value\n",
-    "            \n",
-    "            result = create_report(\n",
-    "                report_xl=report_xl,\n",
-    "                gesamt_sheet_name=gesamt_sheet_selector.value,\n",
-    "                fg_sheet_name=fg_sheet_selector.value,\n",
-    "                current_pt=product_tree,\n",
-    "                used_cost_centers=used_cost_centers,\n",
-    "                #header_row=9,\n",
-    "                #cost_center_colname='Kostenstelle des Geschäfts',\n",
-    "                #sachkonto_colname='Sachkonto-Nr.',\n",
-    "                report_type=report_type,\n",
-    "                #main_groups_list:list[str]=['Aktiv','Leasing','Factoring','Bankverbindl.','Giro','Spar'],\n",
-    "                #sachkonto_details_for:list[str]=['Giro']\n",
-    "            )\n",
-    "            data_output_area.result = result\n",
-    "            if isinstance(result,pd.Series):\n",
-    "                result_to_show = result.to_frame()\n",
-    "            else:\n",
-    "                result_to_show = result\n",
-    "            \n",
-    "            if result_to_show is None:\n",
-    "                print('No data was returned...')\n",
-    "                return\n",
-    "            # Show the styled DataFrame (HTML) in the output widget\n",
-    "            display(result_to_show.style.format(custom_formatter))\n",
-    "            \n",
-    "            \n",
-    "        except Exception as e:\n",
-    "            print(\"ERROR processing data:\", e, traceback.format_exc())\n",
-    "            \n",
-    "# ---------------------------------------------------------------------\n",
-    "# 3) OBSERVER FUNCTIONS\n",
-    "# ---------------------------------------------------------------------\n",
-    "format_selector.observe(regenerate_checkboxes)\n",
-    "report_type_selector.observe(on_report_type_change, names='value')\n",
-    "input_file_button.on_click(input_file_button_clicked)\n",
-    "#supp_file_button.on_click(on_supp_file_button_clicked)\n",
-    "#report_file_button.on_click(on_data_file_button_clicked)\n",
-    "target_file_button.on_click(on_target_file_button_clicked)\n",
-    "recalculate_button.on_click(on_recalc_button_clicked)\n",
-    "# ---------------------------------------------------------------------\n",
-    "# 4) DISPLAYING THE WIDGETS\n",
-    "# ---------------------------------------------------------------------\n",
-    "\n",
-    "vbox_layout = widgets.Layout(\n",
-    "    width='25%',\n",
-    "    min_width='100px',\n",
-    "    margin ='0px 10px 2px 10px',\n",
-    ")\n",
-    "\n",
-    "ui = widgets.VBox([\n",
-    "    widgets.HBox([\n",
-    "        widgets.VBox([input_file_button],layout=widgets.Layout(justify_content='flex-end',margin='0px')),\n",
-    "        widgets.VBox([widgets.Label('KUKA-Gesamtreport sheet:'),gesamt_sheet_selector],layout=vbox_layout),\n",
-    "        widgets.VBox([widgets.Label('KUKA-Finanzgeschäftreport sheet:'),fg_sheet_selector],layout=vbox_layout),\n",
-    "        widgets.VBox([widgets.Label('MSR report format:'),format_selector],layout=vbox_layout),\n",
-    "    ]),    \n",
-    "    checkboxes_container,\n",
-    "    widgets.HBox([\n",
-    "        widgets.VBox([recalculate_button],layout=widgets.Layout(justify_content='flex-end',margin='0px')),\n",
-    "        widgets.VBox([\n",
-    "             widgets.Label('Report type:'), report_type_selector],\n",
-    "                 layout=widgets.Layout(\n",
-    "                     width='75%',\n",
-    "                     min_width='300px',\n",
-    "                     margin ='0px 10px 2px 10px')),\n",
-    "    ]),\n",
-    "    \n",
-    "])\n",
-    "display(ui)"
-   ]
-  },
-  {
-   "cell_type": "code",
-   "execution_count": 3,
-   "id": "abd82f83",
-   "metadata": {
-    "scrolled": false
-   },
-   "outputs": [
-    {
-     "data": {
-      "application/vnd.jupyter.widget-view+json": {
-       "model_id": "edfaf1a29c694976a913a3d1218e3976",
-       "version_major": 2,
-       "version_minor": 0
-      },
-      "text/plain": [
-       "Output()"
-      ]
-     },
-     "metadata": {},
-     "output_type": "display_data"
-    }
-   ],
-   "source": [
-    "display(data_output_area)"
-   ]
-  },
-  {
-   "cell_type": "code",
-   "execution_count": 4,
-   "id": "e9275676",
-   "metadata": {},
-   "outputs": [
-    {
-     "data": {
-      "application/vnd.jupyter.widget-view+json": {
-       "model_id": "d35447ac65ce4222bf157a3bddd371b0",
-       "version_major": 2,
-       "version_minor": 0
-      },
-      "text/plain": [
-       "HBox(children=(VBox(children=(Button(description='Update MSR File', style=ButtonStyle()),), layout=Layout(just…"
-      ]
-     },
-     "metadata": {},
-     "output_type": "display_data"
-    }
-   ],
-   "source": [
-    "update_ui = widgets.HBox([\n",
-    "    widgets.VBox([target_file_button],layout=widgets.Layout(justify_content='flex-end',margin='0px')),\n",
-    "    widgets.VBox([widgets.Label('Column in target file:'),target_column_input],layout=vbox_layout),\n",
-    "    widgets.VBox([widgets.Label('Date row in sheets of target:'),date_row_input],layout=vbox_layout),\n",
-    "    widgets.VBox([widgets.Label('Row where the pasting should start:'),data_row_input],layout=vbox_layout),\n",
-    "    ])\n",
-    "\n",
-    "\n",
-    "display(update_ui)"
-   ]
-  },
-  {
-   "cell_type": "code",
-   "execution_count": 5,
-   "id": "fde4fa31",
-   "metadata": {},
-   "outputs": [
-    {
-     "data": {
-      "application/vnd.jupyter.widget-view+json": {
-       "model_id": "ca46a75eb9f7496ba8b8e7b1cd0bf694",
-       "version_major": 2,
-       "version_minor": 0
-      },
-      "text/plain": [
-       "Output()"
-      ]
-     },
-     "metadata": {},
-     "output_type": "display_data"
-    }
-   ],
-   "source": [
-    "display(export_output_area)"
-   ]
-  }
- ],
- "metadata": {
-  "hide_input": true,
-  "kernelspec": {
-   "display_name": "Python 3 (ipykernel)",
-   "language": "python",
-   "name": "python3"
-  },
-  "language_info": {
-   "codemirror_mode": {
-    "name": "ipython",
-    "version": 3
-   },
-   "file_extension": ".py",
-   "mimetype": "text/x-python",
-   "name": "python",
-   "nbconvert_exporter": "python",
-   "pygments_lexer": "ipython3",
-   "version": "3.10.16"
-  }
- },
- "nbformat": 4,
- "nbformat_minor": 5
-}
+import tkinter as tk
+from tkinter import filedialog
+import xlwings as xw
+import pandas as pd
+import numpy as np
+import io
+import re 
+# ---------------------------------------------------------------------
+# Creating The Product Tree
+# ---------------------------------------------------------------------
+def get_product_MSR_pos_alignment(pt_kst_xl:pd.ExcelFile, sheet_name:str, header_product:int=1):
+    """
+    Reads the specified sheet using `header_row` as the header,
+    processes it, and prints the 'MSR groups -> product numbers'
+    output into the output_area widget.
+    """
+    # Parse the desired sheet
+    try: 
+        prodtree = pt_kst_xl.parse(sheet_name=sheet_name,header=header_product-1)
+        if 'Produkt' in prodtree.columns:
+            # Remove lines where 'Produkt' is empty (NaN)
+            prodtree = prodtree.dropna(subset=['Produkt'])
+            # create a dict that maps "product code" -> "MSR position"
+            pt = {x[1].iloc[0]:x[1].iloc[1] if pd.notnull(x[1].iloc[1]) else 'N/A' for x in prodtree.iterrows()} #pt -> product tree
+        else:
+            print('There is no "Produkt" column found with this header row!')
+            pt = None
+        return pt
+    except Exception as e:
+        print('Error while reading in and processing the MSR Cost centers', e)
+        return None
+
+# ---------------------------------------------------------------------
+# Creating The MSR Output Format options
+# ---------------------------------------------------------------------
+def get_msr_output_format(pt_kst_xl:pd.ExcelFile,sheet_name:str,header_cost_center:int=1):
+    try:
+        ccdf = pt_kst_xl.parse(sheet_name=sheet_name,header=header_cost_center-1)
+        ccs = ccdf.groupby(ccdf[['MSR','Untersegment']].apply(lambda x: ' - '.join(x.tolist()), axis=1)).agg({'KST':'unique'}).squeeze().to_dict()
+    except Exception as e:
+        print('Error while reading in and processing the Produktbaum', e)
+        return None
+    
+    return ccs
+
+# ---------------------------------------------------------------------
+# Opening an excel via a dialogbox
+# ---------------------------------------------------------------------
+def open_an_excel(titlestr:str|None=None):
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes('-topmost', True)
+    file_bytes = filedialog.askopenfile(mode='rb',title=titlestr, filetypes=[('Excel files','.xlsx')],parent=root)
+    if file_bytes:
+        file = pd.ExcelFile(io.BytesIO(file_bytes.read()))
+        root.destroy()
+        return file
+    else:
+        root.destroy()
+        return None
+
+
+# ---------------------------------------------------------------------
+# Main function to creating the report
+# ---------------------------------------------------------------------
+def create_report(
+        report_xl:pd.ExcelFile,
+        gesamt_sheet_name:str,
+        fg_sheet_name:str,
+        current_pt:dict,
+        used_cost_centers:list[int],
+        header_row:int=9,
+        cost_center_colname:str='Kostenstelle des Geschäfts',
+        sachkonto_colname:str='Sachkonto-Nr.',
+        report_type:str='Summary',
+        main_groups_list:list[str]=['Aktiv','Leasing','Factoring','Bankverbindl.','Giro','Spar'],
+        sachkonto_details_for:list[str]=['Giro']
+        ):
+    '''
+    this function will read in the report and summarize the values by MSR position to be inserted in the main file
+    '''
+    if len(used_cost_centers)==0:
+        print('All cost centers were unchecked, no report possible...')
+        return None
+    
+    if not gesamt_sheet_name:
+        print('No KUKA-Gesamtabfrage sheet was selected')
+        return None
+    
+    if not fg_sheet_name:
+        print('No KUKA-Finanzgeschäftabfrage sheet was selected')
+        return None
+    #reading in the report file
+    # we are using the sheet_name and header row variables to immediately get to the table
+    rdf = report_xl.parse(gesamt_sheet_name,header_row-1) #rdf -> report dataframe -> KUKA daten
+    
+    fgdf = report_xl.parse(fg_sheet_name,header_row-1)
+    
+    efg = fgdf.loc[fgdf[cost_center_colname].isin(used_cost_centers),[cost_center_colname,'Erträge Finanzgeschäft']].set_index(cost_center_colname) #Erträge Finanzgeschäft
+
+    #print(f'Raw shape: {rdf.shape}')
+    #print(rdf.columns)
+    
+    if 'Produkt' not in rdf.columns:
+        print('There is no Produkt column found in the file, cannot run the further script. Please review the input parameters.')
+        return None
+        
+    #we remove the lines where the Produkt column is not a number:
+    rdf.loc[:,'Produkt'] = pd.to_numeric(rdf['Produkt'],errors='coerce')
+    rdf = rdf.dropna(subset=['Produkt'])
+    
+    #print(f'Cleaned shape: {rdf.shape}')
+    
+    #we set the MSR category based on the dictionary defined previously - if something cannot be found, set it to "Undefined"
+    rdf['MSR Cat'] = rdf['Produkt'].apply(lambda x: current_pt[x] if x in current_pt.keys() else "Undefined")
+    
+    #we create the category -> value matrix based on the below columns to generate the Active, Leasing, Giro, and Spar groups' numbers
+    #the grouping to cost centers is in addition if this column is in the report and the option was selected earlier
+    grouping_cols = ['MSR Cat']
+
+    #if there is information about the SAKO in the report, we add this to the grouping columns
+    if sachkonto_colname in rdf.columns:
+        rdf = add_sako_categories(rdf)
+        grouping_cols.append('SAKO Cat')
+        sachkonto_flag = True
+    else:
+        sachkonto_flag = False
+        
+    if cost_center_colname in rdf.columns:
+        imx_input = rdf.loc[rdf[cost_center_colname].isin(used_cost_centers)]
+        if report_type=='Detailed':
+            if len(used_cost_centers)>1:
+                grouping_cols.append("Kostenstelle des Geschäfts")
+            else:
+                print('There is only one cost center selected, continuing with Summary.')
+                report_type='Summary'      
+    else:
+        imx_input = rdf
+        if report_type=='Detailed':
+            print('Error - cannot found "Kostenstelle des Geschäfts" column in the report, cannot get details. Continuing with summary!')
+            report_type='Summary'            
+
+    
+    imx = imx_input.groupby(grouping_cols, dropna=False).sum().loc[:,['Ø Saldo Aktiv','Ø Saldo Passiv',   #imx -> intermediate matrix
+                                                'Ultimosaldo Aktiv','Ultimosaldo Passiv',
+                                                'Zinsbeitrag Aktiv','Zinsbeitrag Passiv',
+                                                'WP-Kurswerte']]#.map(lambda x: abs(x))
+    
+    #for each category, there is either passiv or active "average saldo", "ultimative saldo" and "zinsen" and we will extract these with a custom function
+    first_part = get_first_part(imx_input=imx,
+                                used_cost_centers = used_cost_centers,
+                                group_list = main_groups_list,
+                                sako_details_list = sachkonto_details_for,
+                                detailed_flag = report_type=='Detailed',
+                                sachkonto_flag = sachkonto_flag,
+                                )
+
+    #we use a function to convert the multiindex to simple string indices based on some rules to better match the insertion format
+    first_part.index = [renaming_function(ind) for ind in first_part.index.tolist()]
+
+    if report_type=='Detailed':
+        second_part = get_second_part_detailed(
+            imx_input,
+            cost_center_colname,
+            used_cost_centers
+        )
+    elif report_type=='Summary':
+        second_part = get_second_part_summary(imx_input)
+
+    print(f'Data types of parts matching: {type(first_part) is type(second_part)}')
+
+    total=pd.concat([first_part,second_part])
+
+    if isinstance(total,pd.Series):
+        if len(used_cost_centers)>1:
+            total.name='Summary'
+        else:
+            total.name=used_cost_centers[0]
+        total = pd.concat([total[:-2],pd.Series(data=efg.sum(), index=['Erträge Finanzgeschäft'],name=total.name),total[-2:]])
+    else:
+        total = pd.concat([total[:-2], efg.T,total[-2:]])
+    #hardcoding of making sure that only in case of report 230 the giro details are shown - shall be made a parameter in the future
+    if used_cost_centers!=[230]:
+        total.iloc[16:32]=np.nan
+    return total
+
+#details of getting the first part
+sako_detail_map = [
+    ('Girokonto',[1501,1502,1503]),
+    ('Extrakonto',[2149,2250]),
+    ('Pluskonto',[9191,9631,9671]),
+    ('Fixzinskonto',[2143,2144,2251])
+]
+
+# ---------------------------------------------------------------------
+# Creating a block in the first part of the report, based on the group_name
+# ---------------------------------------------------------------------
+def add_the_right_part(
+        subser_input:pd.DataFrame,
+        detailed_flag:bool,
+        index_order_search_strings:list[str],
+        cost_center_colname:str='Kostenstelle des Geschäfts',
+        )->pd.Series|pd.DataFrame:
+    
+    #print('Raw input is: ',subser_input)
+    
+    #print("Raw input's index is: ",subser_input.index)
+    subser = subser_input[subser_input.apply(lambda x:x!=0)].dropna()
+    
+    
+    #print('subseries is: ', subser)
+    #print('subseries index is: ', subser.index)
+    
+    #this is setting the columns' order
+    old_order = subser.index.get_level_values('Position Types').tolist()
+    order = setting_new_order(old_order,index_order_search_strings[:-1])  #we are trying to set the new index order (Except the % zins as this will be added later)
+    #print(f'the new index order {order}')
+    
+    #we will reindex based on the new order and add the subdfs to a list (if an exact index is missing, we create a "row")
+    extra_rows = []
+    for pos in order:
+        if pos not in subser.index.get_level_values(level='Position Types'):
+            if detailed_flag:
+                index = pd.MultiIndex.from_product([
+                    subser_input.index.get_level_values('MSR Cat').unique(),
+                    [pos],
+                    subser_input.index.get_level_values(cost_center_colname).unique()
+                    ],names=['MSR Cat', 'Position Types', cost_center_colname]
+                )
+            else:
+                index = pd.MultiIndex.from_product([
+                    subser_input.index.get_level_values('MSR Cat').unique(),
+                    [pos],
+                    ],names=['MSR Cat', 'Position Types']
+                )
+            extra_rows.append(pd.Series(data=[0]*len(index),index=index))
+
+    subser = pd.concat([subser]+extra_rows).reindex(order, level='Position Types')
+    #print(subser)
+    #if this group is missing from the data, we still want to populate with np.NaNs 
+    #for this it doesn't matter if we take the Active or Passive...
+    if subser.empty:
+        part = add_an_empty_part(category_name=subser_input.index.get_level_values('MSR Cat').unique()[0],
+                      detailed_flag=detailed_flag,
+                      cost_center_colname=cost_center_colname,
+                      used_cost_centers=subser_input.index.get_level_values(cost_center_colname).unique()
+        )
+        return part
+        
+    if detailed_flag:
+        top_part = subser.unstack(cost_center_colname)
+        zins = pd.DataFrame(
+            data = top_part.iloc[-1]/top_part.iloc[0],
+            columns=[(top_part.index.get_level_values(0)[0],'Zinsbeitrag in %')]
+            ).T
+    else:
+        top_part = subser
+        zins = pd.Series(
+            data = top_part.iloc[-1]/top_part.iloc[0],
+            index=[(top_part.index.get_level_values(0)[0],'Zinsbeitrag in %')])
+        
+    part = pd.concat([top_part,zins],axis=0)
+    
+    #print('part added:')
+    #print(part)
+    return part
+
+def add_an_empty_part(category_name:str,
+                      detailed_flag:bool,
+                      used_cost_centers:list[int]|None=None,
+                      cost_center_colname:str|None=None,
+                      pos_list:list[str]=['Ø Saldo Aktiv',  'Ultimosaldo Aktiv',  'Zinsbeitrag Aktiv','Zinsbeitrag in %']
+                      ):
+    if detailed_flag:
+        if not cost_center_colname or not used_cost_centers:
+            return None
+        ser_index = pd.MultiIndex.from_product([
+            [category_name],
+            pos_list,
+            used_cost_centers
+            ],names=['MSR Cat', 'Position Types', cost_center_colname]
+        )
+    else:
+        ser_index = pd.MultiIndex.from_product([
+            [category_name],
+            pos_list,
+            ],names=['MSR Cat', 'Position Types']
+        )
+    
+    subser = pd.Series(
+            data=[0]*len(ser_index),
+            index = ser_index
+            )
+    if detailed_flag:
+        part = subser.unstack()
+    else:
+        part = subser
+    
+    return part
+
+
+# ---------------------------------------------------------------------
+# sorting the blocks (including the Sachkonto details)
+# ---------------------------------------------------------------------
+def get_sorting_order(group_list_input:list,sako_list:list,tpl_list:list=sako_detail_map)->list:
+    group_list = group_list_input.copy()
+    for val in sako_list:
+        loc = group_list.index(val)
+        for tpl in tpl_list[::-1]:
+            group_list.insert(loc,f'{val} {tpl[0]}')
+    return group_list
+
+# ---------------------------------------------------------------------
+# creating the first part of the report where per group always the Du. Saldo, the Ultimosaldo and the Zinsbeitrag is generated
+# ---------------------------------------------------------------------
+def get_first_part(imx_input:pd.DataFrame,
+                   used_cost_centers:list[int|str],
+                   group_list:list[str]=['Aktiv','Leasing','Giro','Spar'],
+                   index_order_search_strings:list[str]=['Ø','Ultimosaldo','Zinsbeitrag','%'],
+                   sako_details_list:list=['Giro'], # by default only apply the detailed SAKO breakdown to the Giro category
+                   detailed_flag:bool=False,
+                   sachkonto_flag:bool=True,
+                   cost_center_colname:str='Kostenstelle des Geschäfts',
+                   
+                  )->pd.DataFrame|pd.Series:
+    
+    '''this summary function creates the first part of the insertable table/series by performing a series of reshaping, grouping, etc
+    inputs: 
+        imx: the matrix that is coming from the previous step (basically a bit reformed report): a dataframe with the MSR category and 
+        cost center as multiindex and the report columns as columns
+        group_list: the standard list of report categories, where the same operations need to be performed (default is given)
+        index_order_search_strings: a list of strings that helps to align the index within each categories to match the order of the insertion
+        sako_details_list: to which category (in the group list) shall a SAKO cat breakdown happen
+        detailed_flag: the flag to decide whether to reuturn a summary as pd.Series or a detailed view via pd.Dataframe (with cost centers as columns)
+    '''
+    
+    imx = imx_input.stack(future_stack=True)
+    imx.index.set_names(imx.index.names[:-1]+['Position Types'],inplace=True)
+         
+    #sense_check
+    if sachkonto_flag:
+        sako2pop = []
+        for i, sd_cat in enumerate(sako_details_list):
+            if sd_cat not in group_list:
+                sako2pop.append(i)
+                print(f'Error! SAKO category "{sd_cat}" cannot be found in the report categories ({",".join(group_list)}), this group will be set to 0')
+        if len(sako2pop)>0:
+            for i in sako2pop[::-1]:
+                sako_details_list.pop(i)
+    else:
+        sako_details_list = []
+    
+    subdfs = []
+    #we only focus on the specific categories from the group list, if those combinations
+    #do not have value (e.g. Factoring is missing), we still want to produce an empty dataframe
+    for group in group_list:
+        #print('Grouping value:',group)
+        if group in imx.index.get_level_values('MSR Cat'):
+            # as there are both active and passive categories of saldo, etc., we map which are bigger then 0
+            # with the apply function, we keep those that are bigger than 0, because the rest will be np.NaN and will be removed by dropna()
+            # (e.g. passive saldo row will be removed in case of the active group, because the whole row will be np.NaN.
+            # This will leave us with 4 rows always (average saldo, ultimo saldo, zinsbeitrag EUR, zinsbeitrag %) 
+            # it is possible though that some of the individual cost centers do not all have all the 4 values, so we need to use fillna(0) to show 0s instead
+            # of empty cells
+            this_group = imx.loc[[group]]
+            if group in sako_details_list:
+                #print(f'{group} break down by SAKO')
+                #comes the SAKO breakdown - we need to do it by keys in the sako_detailed_map
+                for tpl in sako_detail_map:
+                    sako_cat=tpl[0]
+                    if sako_cat not in this_group.index.get_level_values('SAKO Cat'):
+                        print(f'creating empty data for "{group} {sako_cat}"')
+                        #if this subcategory is completely missing, we just create an empty df
+                        part = add_an_empty_part(category_name=f'{group} {sako_cat}',
+                                                 detailed_flag=detailed_flag,
+                                                 used_cost_centers=used_cost_centers,
+                                                 cost_center_colname=cost_center_colname
+                                                 )
+                        subdfs.append(part)
+                        continue
+
+                    subgrp = this_group.loc[pd.IndexSlice[:,sako_cat,:],]                        
+                    if detailed_flag:
+                        grouping_levels = ['MSR Cat','Position Types',cost_center_colname]
+                    else:
+                        grouping_levels = ['MSR Cat','Position Types']
+                    
+                    subgrp_input = subgrp.groupby(level=grouping_levels).sum()
+                    subgrp_input.index = subgrp_input.index.set_levels([f'{group} {sako_cat}'], level=subgrp_input.index.names[0])
+                    
+                    part = add_the_right_part(
+                        subgrp_input,
+                        detailed_flag,
+                        index_order_search_strings
+                    )
+                    subdfs.append(part)
+
+            if detailed_flag:
+                
+                part = add_the_right_part(
+                    this_group.groupby(
+                        level=[
+                            'MSR Cat',
+                            'Position Types',
+                            cost_center_colname
+                            ]
+                        ).sum(),
+                        detailed_flag,
+                        index_order_search_strings
+                )
+                subdfs.append(part)
+            else:
+                part = add_the_right_part(
+                    this_group.groupby(
+                        level=[
+                            'MSR Cat',
+                            'Position Types'
+                            ]
+                        ).sum(),
+                        detailed_flag,
+                        index_order_search_strings
+                )
+                subdfs.append(part)
+        else:
+            #if there is no data, we add an empty dataframe/series
+            part = add_an_empty_part(category_name=group,
+                                     detailed_flag=detailed_flag,
+                                     used_cost_centers=used_cost_centers,
+                                     cost_center_colname=cost_center_colname
+                                     )
+            subdfs.append(part)
+            
+    #we get the first part by concatenating the selected dfs and filling np.NaNs with 0s and return it in the group_list's order
+    result = pd.concat(subdfs).fillna(0)
+    #print(result)
+    sorting_order = get_sorting_order(group_list,sako_details_list)
+
+    return result.reindex(sorting_order,level=0,axis=0)
+
+# ---------------------------------------------------------------------
+# function to add the SAKO categories, to the input dataframe based on the SAKO numbers in the sako_detail_map (list of tuples, not dict!)
+# ---------------------------------------------------------------------
+def add_sako_categories(imx:pd.DataFrame, sako_map:list=sako_detail_map, sachkonto_colname:str='Sachkonto-Nr.'):
+    for tpl in sako_map:
+        name=tpl[0]
+        numbers=tpl[1]
+        imx.loc[imx[sachkonto_colname].isin(numbers),'SAKO Cat']=name
+    return imx
+
+
+# ---------------------------------------------------------------------
+# function to add the SAKO categories, to the input dataframe based on the SAKO numbers in the sako_detail_map (list of tuples, not dict!)
+# ---------------------------------------------------------------------
+
+def setting_new_order(current_order:list[str],search_strings:list[str])->list[str]:
+    order=[]
+        # the subframes all have 4 rows, but they are not in the right order for the report. we will reorder them by building a list of exact index names 
+        # by using some keyword searches using regex this will allow us to find these regardless if they are passiv or active groups
+    for s in search_strings:
+        #print(f'searcing for {s} in index')
+        for ind in current_order:
+            #print(ind)
+            m = re.search(s,ind)
+            if m:
+                #print(f'found it in this index: {ind}')
+                order.append(ind)
+                break
+        else:
+            order.append(s)
+
+    return order
+
+
+# ---------------------------------------------------------------------
+# function to rename the blocks based on some rules to better align with the MSR target fields
+# --------------------------------------------------------------------- 
+def renaming_function(index_elements:list|tuple):
+    '''this is a function te specifically rename the original index values for better alignment with the report's position. The rules below are 
+    to produce optimal results for the current naming conventions, if something changes there, this code needs to be adjusted
+    input: a (multi)index represented as an iterable (e.g.: list or tuple)
+    '''
+    cat = index_elements[0]
+    #print('Category:',cat)
+    if cat in ['Aktiv','Leasing','Factoring']:
+        cat_out = cat+'volumen'
+    elif cat in ['Giro','Spar']:
+        cat_out = cat+'einlagen'
+    elif cat=='Bankverbindl.':
+        cat_out = 'Su.Bankverb.'
+    else:
+        cat_out = cat
+    cost_type = index_elements[1]
+    if not re.search('Zinsbeitrag', cost_type):
+        if re.search('Ultimosaldo',cost_type):
+            return cat_out +' - Saldo per Stichtag (in EUR)'
+        else:
+            return cat_out +' - Du.Stand (in EUR)'
+    else:
+        if re.search('%', cost_type):
+            return 'Zinsbeitrag '+cat+' (in %)'
+        else:
+            return 'Zinsbeitrag '+cat+' (in EUR)'
+
+# ---------------------------------------------------------------------
+# creating the second part of the report where no passiv/aktiv columns need to be considered - this is for summary report
+# ---------------------------------------------------------------------
+def get_second_part_summary(imx_input:pd.DataFrame):
+    second_part = imx_input.reindex([
+    'Mindestreservekosten',
+    'Zusatzerträge Aktiv',
+    'Zusatzaufwände Aktiv',
+    'Nicht ausgenützter Rahmen',
+    'Risikokosten',
+    'Eigenmittelkosten',
+    'Liquiditätskosten Rahmen',
+    'Liquiditätskosten Haftungen/Promessen',
+    'Bonifikation Kreditsaldo',
+    'Bonifikation Rahmen',
+    'Wertstellungsnutzen',
+    'Risikokosten nicht ausgenützte Rahmen',
+    'Eigenmittelkosten nicht ausgenützte Rahmen',
+    'Sonstige Erträge',
+    'WP-Kurswerte',
+    ],axis=1).sum()
+
+    # this is to ensure that the "special" parts will be inserted in the right order
+    first_split = 3 
+    second_split = 11
+
+    #inserting "Erträge aus Factoring"
+    try:
+        eaf = imx_input.loc[imx_input['MSR Cat']=='Factoring'].agg({'Erträge aus Factoring':'sum'})
+    except KeyError:
+        print('Error! "Erträge aus Factoring" column is missing from the report')
+        eaf = pd.Series(data=[0],index=['Erträge aus Factoring'])
+    
+    #inserting "Ø Haftungsvolumen (EUR)"
+    hv = imx_input.loc[(imx_input['MSR Cat']=='Haftungen')].agg({'Ø Saldo Haftung':'sum'}).set_axis(['Ø Haftungsvolumen (EUR)'])
+    
+    ewb = imx_input.loc[(imx_input['MSR Cat']=='EWB')].agg({'Ø Saldo Passiv':'sum'}).set_axis(['Einzelwertberichtigung (EUR)'])
+    
+    haft_acc = imx_input.groupby(['MSR Cat'],dropna=False).agg({'Ø Saldo Haftung':'sum'}).reindex([
+        'Haftungen Bank',
+        'Akkreditive',
+        'Akkreditive Bank', # -> this does not have any product nummer associated with it yet
+        ]).fillna(0).set_axis([
+        'Haftungen Banken - Du.Stand (EUR)',
+        'Akkreditive - Du.Stand (EUR)',
+        'Akkreditive Banken - Du.Stand (EUR)',# -> this does not have any product nummer associated with it yet
+        ]).squeeze()
+    
+    return pd.concat([second_part[:first_split], eaf, hv, ewb, second_part[first_split:second_split], haft_acc, second_part[second_split:]])
+
+# ---------------------------------------------------------------------
+# creating the second part of the report where no passiv/aktiv columns need to be considered - this is for detailed report
+# ---------------------------------------------------------------------
+def get_second_part_detailed(imx_input:pd.DataFrame, cost_center_colname:str,used_cost_centers:list[int]):
+    second_part = imx_input.groupby([cost_center_colname]).sum().loc[:,[
+    'Mindestreservekosten',
+    'Zusatzerträge Aktiv',
+    'Zusatzaufwände Aktiv',
+    'Nicht ausgenützter Rahmen',
+    'Risikokosten',
+    'Eigenmittelkosten',
+    'Liquiditätskosten Rahmen',
+    'Liquiditätskosten Haftungen/Promessen',
+    'Bonifikation Kreditsaldo',
+    'Bonifikation Rahmen',
+    'Wertstellungsnutzen',
+    'Risikokosten nicht ausgenützte Rahmen',
+    'Eigenmittelkosten nicht ausgenützte Rahmen',
+    'Sonstige Erträge',
+    'WP-Kurswerte',
+    ]].reindex(used_cost_centers)
+    
+    #inserting "Erträge aus Factoring"
+    eaf = imx_input.loc[imx_input['MSR Cat']=='Factoring'].groupby([cost_center_colname]).sum().loc[:,[
+        'Erträge aus Factoring']].squeeze().reindex(used_cost_centers)
+    
+    #inserting "Ø Haftungsvolumen (EUR)"
+    hv = imx_input.loc[(imx_input['MSR Cat']=='Haftungen')
+                    ].groupby([cost_center_colname
+                               ],dropna=False).agg({'Ø Saldo Haftung':'sum'}).set_axis(['Ø Haftungsvolumen (EUR)'],axis=1).squeeze().reindex(used_cost_centers)
+    
+    ewb = imx_input.loc[(imx_input['MSR Cat'
+                         ]=='EWB')].groupby([cost_center_colname
+                                             ],dropna=False).agg({'Ø Saldo Passiv':'sum'}).set_axis(['Einzelwertberichtigung (EUR)'
+                                                                                                        ],axis=1).squeeze().reindex(used_cost_centers)
+    
+    haft_acc = imx_input.groupby([cost_center_colname,
+                       'MSR Cat'],dropna=False).sum().loc[:,'Ø Saldo Haftung'].unstack(level=1).reindex([
+        'Haftungen Bank',
+        'Akkreditive',
+        'Akkreditive Bank', # -> this does not have any product nummer associated with it yet
+        ], axis=1).fillna(0).set_axis([
+        'Haftungen Banken - Du.Stand (EUR)',
+        'Akkreditive - Du.Stand (EUR)',
+        'Akkreditive Banken - Du.Stand (EUR)',# -> this does not have any product nummer associated with it yet
+        ],axis=1).reindex(used_cost_centers)
+    
+    #because this is a dataframe, we can insert the "columns"
+    locations = [3,4,5]
+    
+    entries = [eaf,hv,ewb]
+    for i, entry in enumerate(entries):
+        second_part.insert(locations[i],entry.name, entry.values)
+    
+    #because this is a dataframe, we can insert the "columns"
+    second_locations = [14,15,16]
+    for i, col in enumerate(haft_acc.columns):
+        second_part.insert(second_locations[i], col, haft_acc[col])
+
+    return second_part.T.fillna(0)
+
+
+def euro_format(x, decimals=2):
+    """
+    Formats a numeric value using '.' for thousands
+    and ',' for decimal separator, to 'decimals' places.
+    Example: 1234567.89 -> "1.234.567,89"
+    """
+    if pd.isna(x):
+        return ""
+    # First format with standard (U.S.) grouping: e.g. "1,234,567.89"
+    # The spec ":,.2f" means comma-grouping and 2 decimal places.
+    us_style = f"{x:,.{decimals}f}"
+
+    # Swap commas (,) and periods (.) to get the European style:
+    # 1) Temporarily replace commas with a marker ("X")
+    # 2) Replace periods with commas
+    # 3) Replace "X" with periods
+    # E.g. "1,234,567.89" -> "1X234X567,89" -> "1X234X567,89" -> "1.234.567,89"
+    euro_style = us_style.replace(",", "X").replace(".", ",").replace("X", ".")
+    return euro_style
+
+def custom_formatter(val,decimals:int=2):
+    """
+    If abs(x) >= 1, return it with underscore thousands separators, 0 decimals.
+    If abs(x) < 1, interpret as a fraction (0.02 -> "2.00%").
+    Adjust logic as needed for negative values or special cases.
+    """
+    if pd.isna(val):
+        return ""
+    elif val==0:
+        return f"{int(val)}"
+    elif abs(val) < 1:
+        # Show as a percentage with 2 decimals
+        return f"{val:.{decimals}%}"
+    else:
+        return euro_format(val, decimals)
+
+def update_target_excel_xlwings(
+    data_input:pd.Series|pd.DataFrame,
+    cost_centers_used:list[int],
+    target_column:str,
+    date_row:int=8,
+    data_row:int=115,
+    titlestr:str|None=None
+    ):
+    
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes('-topmost', True)
+    target_path = filedialog.askopenfilename(title=titlestr, filetypes=[('Excel files','.xlsx')])
+    
+    if not target_path:
+        print('No target file was selected!')
+        root.destroy()    
+        return
+    app = xw.App(add_book=False)
+
+    wb=app.books.open(target_path,update_links=False)
+    root.destroy()
+    for cc in cost_centers_used:
+        print(f'updating cost_center {cc}')
+        if isinstance(data_input,pd.Series): #this is in case of summary report
+            data_to_insert = data_input
+        elif isinstance(data_input,pd.DataFrame):
+            data_to_insert = data_input[cc]
+
+        for sheet in wb.sheet_names:
+            if str(cc) in sheet:
+                ws = wb.sheets[sheet]
+                print(f'Found the worksheet for {str(cc)}')
+                break #Found the sheet to paste the data into!
+        else:
+            print(f"Did not find any sheet with {str(cc)} in it's name, no update")
+            ws = None
+            continue
+
+        for i, cell in enumerate(ws[f'{date_row}:{date_row}']): #the rows where the date is defined for the column
+            #print(i)
+            if i>=150:
+                print(f"Did not find {target_column} in the first 150 columns of row {date_row} in worksheet {sheet}, no update")            
+                target_col = None
+                break
+
+            if cell.value==target_column:
+                target_col = cell.column
+                address = cell.get_address()
+                print(f'Found the column to update for worksheet {sheet}:{address}')
+                break #Found the column to paste the data into!
+        else:
+            print(f"Did not find any column with {target_column} in row {date_row} in worksheet {sheet}, no update")            
+            target_col = None
+            continue
+
+        if target_col:
+            print(f'pasting data into {ws.range(data_row,target_col).get_address()}')
+            ws.range(data_row,target_col).value = [[val] for val in data_to_insert.values.tolist()]
+        else:
+            continue
+
+    print('Update completed, saving & closing workbook')
+    wb.save(target_path)
+    wb.close()
+    app.quit()
+
+def main():
+    pass
+    #test_xlwings(pd.Series([1212,3232,43535,67888,34343],index=['haha','hehe','hihi','lolo','püéö'],name=230),
+    #             [230],
+    #             '12/2024',
+    #)
+
+if __name__=='__main__':
+    main()
