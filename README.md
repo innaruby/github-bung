@@ -1,26 +1,139 @@
+import tkinter as tk
+from tkinter import filedialog, messagebox
+import os
+import shutil
+from openpyxl import load_workbook
+from openpyxl.styles import PatternFill
 
-There will be a gui using tkinter library , user will be asked to give two files .
-First file is called input file . Second file is called Kostenstelle. 
-Both the files will be selected by user from the directory using the gui mask . 
-As the next step the program should create a copy of the input file which is file 1 in the same directory where the file 1 lies.
-Then open the copy file  ( or copy of the input file ) then delete all the values in the active worksheet(there will be only work sheet in the file ) starting from row 16.
-Then the next step is , look in the original file 1 or original input file , in column index C , starting from row 16. 
-So next step is to find till which row it has continuous data in column index C. Then mark the last row where it has continuous data in column index C as the end row. 
-The next step is that , copy the values in column index C,D,E,F,H from the original file to the column indices C,D,E,F,H in  copy file starting from row 16 till the end row . 
-Then the next step is that , perform a vlook up between the copy file and the Kostenstelle(file2) , such that copy the value from column index E from the file Kostenstelle to column index B in copy file , if the value in column index H in copy file matches with the value in column index A in Kostenstelle file. 
-Then the next step is that , write in column index G in copy file the value V0 if the value in column index C start with 705,706or707   in copy file and the value in column index B is 1001. This is case 1. 
-Write in column index G the value U0 , if the value in column index C start with 705,706or707   in copy file and the value in column index B is 1002 in copy file . This is case 2. 
-write in column index G in copy file the value A0 if the value in column index C start with 704 in copy file and the value in column index B is 1001. This is case 3.
-write in column index G in copy file the value D0 if the value in column index C start with 705,706or707   in copy file and the value in column index B is 1002. This is case 4.
-If the value in column index C starts with any other number , other than in the above mentioned case, then please don’t write anything on the column index G. this is case 5 .
-Please make sure that all the processing of data in copy file are done from row 16 till the end row . 
-Then the next step is that , In the column index L in copy file , write the length of text in column index D with spaces in between excluded. And check if the text length is greater than or equal to 50.
-IF its 50 or greater than 50 , then mark the cell as red, other wise mark the cell as light green. 
-Then the next step is that , we need to perform a v-look up between copy file and Kostenstelle file if the value in column index H in copy file matches the value in column index A in kostenstele file .
-IF yes then the look in the column index F in kostenstelle file whether the value is written aktiv or inaktiv( it should be case insensitive). If its aktiv then write in the column index column index M in copyfile for that corresponding value in column index H in copyfile, 
-But if the value in column index F is inaktiv for a particular value in column index A in Kostenstelle file , then the next step is that copy the value from column index I from Kostenstelle file to the column index M in copy file after checking  an extra condition. 
-The extra condition is that , in the kostenstelle file for a value in column index A , if the value in column index F is inaktiv , then first take its corresponding value in column index I . Bofore writing this value to the column index M in the copy file the check is like this ,    identify the cells which are coloured light green in column index A of the kostenstelle file. Lets call that cells as green cells,. 
-Now we check the value in column index I with values in green cells in column index A in kostenstelle file. 
-IF both the values matches , then for that particular row , take the value from column index I of the kostenstelle file and write it to the column index M in the copyfile . IF the values in column index I doesn’t match with the value in green cells then we take that value from column index I directly from kostenstelle file to the column index M to the copy file. 
 
-Then the next step is that , look In column index G of the copy file . IF the values are A0 or D0 , then appy this formula =WERT("100000"&RECHTS("00"&H23;3))       and write the value to column index K in copy file . after writing the values in column index K , for those row values in column index H  for which we have written the value  in the column index K , after writing the value in column index K , delete the value in column index H. 
+def select_file(title):
+    return filedialog.askopenfilename(title=title, filetypes=[("Excel files", "*.xlsx")])
+
+def process_files(input_path, kostenstelle_path):
+    # Step 1: Create a copy of the input file in the same directory
+    input_dir = os.path.dirname(input_path)
+    input_filename = os.path.basename(input_path)
+    copy_path = os.path.join(input_dir, "copy_of_" + input_filename)
+    shutil.copy(input_path, copy_path)
+
+    # Step 2: Load workbooks
+    original_wb = load_workbook(input_path)
+    copy_wb = load_workbook(copy_path)
+    kostenstelle_wb = load_workbook(kostenstelle_path)
+
+    orig_ws = original_wb.active
+    copy_ws = copy_wb.active
+    kosten_ws = kostenstelle_wb.active
+
+    # Step 3: Delete all rows from row 16 onwards in copy file
+    max_row = copy_ws.max_row
+    for row in range(16, max_row + 1):
+        for col in range(1, copy_ws.max_column + 1):
+            copy_ws.cell(row=row, column=col).value = None
+
+    # Step 4: Find last non-empty row in column C (index 3) of original file
+    end_row = 16
+    while orig_ws.cell(row=end_row, column=3).value:
+        end_row += 1
+    end_row -= 1
+
+    # Step 5: Copy columns C,D,E,F,H from original to copy
+    for row in range(16, end_row + 1):
+        for col in [3, 4, 5, 6, 8]:
+            copy_ws.cell(row=row, column=col).value = orig_ws.cell(row=row, column=col).value
+
+    # Step 6: VLOOKUP to fill column B in copy file
+    kosten_dict = {kosten_ws.cell(row=i, column=1).value: kosten_ws.cell(row=i, column=5).value
+                   for i in range(2, kosten_ws.max_row + 1)}
+
+    for row in range(16, end_row + 1):
+        key = copy_ws.cell(row=row, column=8).value
+        copy_ws.cell(row=row, column=2).value = kosten_dict.get(key, None)
+
+    # Step 7: Write in column G based on conditions
+    for row in range(16, end_row + 1):
+        c_val = str(copy_ws.cell(row=row, column=3).value)
+        b_val = copy_ws.cell(row=row, column=2).value
+        if c_val.startswith(('705', '706', '707')) and b_val == 1001:
+            copy_ws.cell(row=row, column=7).value = "V0"
+        elif c_val.startswith(('705', '706', '707')) and b_val == 1002:
+            copy_ws.cell(row=row, column=7).value = "U0"
+        elif c_val.startswith('704') and b_val == 1001:
+            copy_ws.cell(row=row, column=7).value = "A0"
+        elif c_val.startswith(('705', '706', '707')) and b_val == 1002:
+            copy_ws.cell(row=row, column=7).value = "D0"
+
+    # Step 8: Column L text length and color
+    red_fill = PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid")
+    green_fill = PatternFill(start_color="90EE90", end_color="90EE90", fill_type="solid")
+    for row in range(16, end_row + 1):
+        d_val = str(copy_ws.cell(row=row, column=4).value or "")
+        text_length = len(d_val.replace(" ", ""))
+        cell = copy_ws.cell(row=row, column=12)
+        cell.value = text_length
+        cell.fill = red_fill if text_length >= 50 else green_fill
+
+    # Step 9: Advanced VLOOKUP for column M
+    green_cells = [kosten_ws.cell(row=r, column=1).value
+                   for r in range(2, kosten_ws.max_row + 1)
+                   if kosten_ws.cell(row=r, column=1).fill.start_color.rgb == "FF90EE90"]
+
+    for row in range(16, end_row + 1):
+        h_val = copy_ws.cell(row=row, column=8).value
+        for r in range(2, kosten_ws.max_row + 1):
+            if kosten_ws.cell(row=r, column=1).value == h_val:
+                status = str(kosten_ws.cell(row=r, column=6).value).lower()
+                if status == 'aktiv':
+                    copy_ws.cell(row=row, column=13).value = h_val
+                elif status == 'inaktiv':
+                    i_val = kosten_ws.cell(row=r, column=9).value
+                    copy_ws.cell(row=row, column=13).value = i_val if i_val in green_cells else i_val
+                break
+
+    # Step 10: Formula in column K if G is A0 or D0, and delete H
+    for row in range(16, end_row + 1):
+        g_val = copy_ws.cell(row=row, column=7).value
+        if g_val in ["A0", "D0"]:
+            h_val = copy_ws.cell(row=row, column=8).value
+            if h_val is not None:
+                h_str = str(h_val).zfill(3)[-3:]
+                k_val = int("100000" + h_str)
+                copy_ws.cell(row=row, column=11).value = k_val
+                copy_ws.cell(row=row, column=8).value = None
+
+    # Save the copy file
+    copy_wb.save(copy_path)
+    messagebox.showinfo("Success", f"Processing completed. File saved at: {copy_path}")
+
+
+# GUI Setup
+root = tk.Tk()
+root.title("Excel File Processor")
+
+input_file = ""
+kosten_file = ""
+
+def select_input():
+    global input_file
+    input_file = select_file("Select Input File")
+
+def select_kosten():
+    global kosten_file
+    kosten_file = select_file("Select Kostenstelle File")
+
+def run_process():
+    if not input_file or not kosten_file:
+        messagebox.showerror("Error", "Please select both files before proceeding.")
+    else:
+        process_files(input_file, kosten_file)
+
+btn1 = tk.Button(root, text="Select Input File", command=select_input)
+btn1.pack(pady=5)
+
+btn2 = tk.Button(root, text="Select Kostenstelle File", command=select_kosten)
+btn2.pack(pady=5)
+
+btn3 = tk.Button(root, text="Process Files", command=run_process)
+btn3.pack(pady=10)
+
+root.mainloop()
