@@ -51,8 +51,6 @@ def process_files(input_path, kostenstelle_path):
         for row in kostenstelle_ws.iter_rows(min_row=2)
     }
 
-    green_cells = [k for k, v in kostenstelle_data.items() if v["A_fill"] == "FF90EE90"]
-
     for r in range(16, end_row + 1):
         h_val = copy_ws[f"H{r}"].value
         if h_val in kostenstelle_data:
@@ -81,13 +79,10 @@ def process_files(input_path, kostenstelle_path):
             # Column M logic
             f_val = k_data["F"]
             if isinstance(f_val, str) and f_val.lower() == "aktiv":
-                copy_ws[f"M{r}"].value = None  # No value to write if aktiv
+                copy_ws[f"M{r}"].value = "okay"
             elif isinstance(f_val, str) and f_val.lower() == "inaktiv":
                 i_val = k_data["I"]
-                if i_val in green_cells:
-                    copy_ws[f"M{r}"].value = i_val
-                else:
-                    copy_ws[f"M{r}"].value = i_val
+                copy_ws[f"M{r}"].value = i_val
 
             # Column K formula logic
             g_val = copy_ws[f"G{r}"].value
