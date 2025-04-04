@@ -28,6 +28,7 @@ def process_files(input_path, kostenstelle_path):
     while input_ws[f"C{row}"].value:
         row += 1
     end_row = row - 1
+    print(f"Detected end row: {end_row}")
 
     # Clear column B values in copy file from row 16 to end_row
     for r in range(16, end_row + 1):
@@ -53,10 +54,12 @@ def process_files(input_path, kostenstelle_path):
 
     for r in range(16, end_row + 1):
         h_val = copy_ws[f"H{r}"].value
+        print(f"Row {r}: H = {h_val}")
         if h_val in kostenstelle_data:
             k_data = kostenstelle_data[h_val]
             copy_ws[f"B{r}"].value = k_data["E"]
             b_val = k_data["E"]
+            print(f"  Match found in Kostenstelle - B = {b_val}, F = {k_data['F']}, I = {k_data['I']}")
 
             # G value logic
             c_val = str(copy_ws[f"C{r}"].value)
@@ -78,11 +81,14 @@ def process_files(input_path, kostenstelle_path):
 
             # Column M logic
             f_val = k_data["F"]
-            if isinstance(f_val, str) and f_val.lower() == "aktiv":
-                copy_ws[f"M{r}"].value = "okay"
-            elif isinstance(f_val, str) and f_val.lower() == "inaktiv":
-                i_val = k_data["I"]
-                copy_ws[f"M{r}"].value = i_val
+            if isinstance(f_val, str):
+                if f_val.lower() == "aktiv":
+                    copy_ws[f"M{r}"].value = "okay"
+                    print(f"  Writing 'okay' to M{r}")
+                elif f_val.lower() == "inaktiv":
+                    i_val = k_data["I"]
+                    copy_ws[f"M{r}"].value = i_val
+                    print(f"  Writing '{i_val}' to M{r} from column I")
 
             # Column K formula logic
             g_val = copy_ws[f"G{r}"].value
