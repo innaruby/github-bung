@@ -1,139 +1,119 @@
 import tkinter as tk
 from tkinter import filedialog, messagebox
 import os
-import shutil
-from openpyxl import load_workbook
+import openpyxl
 from openpyxl.styles import PatternFill
 
+# Define color fills
+red_fill = PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid")
+green_fill = PatternFill(start_color="90EE90", end_color="90EE90", fill_type="solid")
 
 def select_file(title):
     return filedialog.askopenfilename(title=title, filetypes=[("Excel files", "*.xlsx")])
 
 def process_files(input_path, kostenstelle_path):
-    # Step 1: Create a copy of the input file in the same directory
     input_dir = os.path.dirname(input_path)
-    input_filename = os.path.basename(input_path)
-    copy_path = os.path.join(input_dir, "copy_of_" + input_filename)
-    shutil.copy(input_path, copy_path)
+    input_wb = openpyxl.load_workbook(input_path)
+    input_ws = input_wb.active
 
-    # Step 2: Load workbooks
-    original_wb = load_workbook(input_path)
-    copy_wb = load_workbook(copy_path)
-    kostenstelle_wb = load_workbook(kostenstelle_path)
+    # Create a copy
+    copy_path = os.path.join(input_dir, "copy_of_input.xlsx")
+    input_wb.save(copy_path)
 
-    orig_ws = original_wb.active
+    copy_wb = openpyxl.load_workbook(copy_path)
     copy_ws = copy_wb.active
-    kosten_ws = kostenstelle_wb.active
 
-    # Step 3: Delete all rows from row 16 onwards in copy file
-    max_row = copy_ws.max_row
-    for row in range(16, max_row + 1):
-        for col in range(1, copy_ws.max_column + 1):
-            copy_ws.cell(row=row, column=col).value = None
+    # Clear values from row 16 onward
+    for row in copy_ws.iter_rows(min_row=16):
+        for cell in row:
+            cell.value = None
 
-    # Step 4: Find last non-empty row in column C (index 3) of original file
-    end_row = 16
-    while orig_ws.cell(row=end_row, column=3).value:
-        end_row += 1
-    end_row -= 1
+    # Find end row in original
+    row = 16
+    while input_ws[f"C{row}"].value:
+        row += 1
+    end_row = row - 1
 
-    # Step 5: Copy columns C,D,E,F,H from original to copy
-    for row in range(16, end_row + 1):
-        for col in [3, 4, 5, 6, 8]:
-            copy_ws.cell(row=row, column=col).value = orig_ws.cell(row=row, column=col).value
+    # Copy columns C,D,E,F,H to copy file
+    for r in range(16, end_row + 1):
+        for col in ["C", "D", "E", "F", "H"]:
+            copy_ws[f"{col}{r}"].value = input_ws[f"{col}{r}"].value
 
-    # Step 6: VLOOKUP to fill column B in copy file
-    kosten_dict = {kosten_ws.cell(row=i, column=1).value: kosten_ws.cell(row=i, column=5).value
-                   for i in range(2, kosten_ws.max_row + 1)}
+    # Load kostenstelle
+    kostenstelle_wb = openpyxl.load_workbook(kostenstelle_path)
+    kostenstelle_ws = kostenstelle_wb.active
+    kostenstelle_data = {
+        row[0].value: {
+            "E": row[4].value,
+            "F": row[5].value,
+            "I": row[8].value,
+            "A_fill": row[0].fill.start_color.rgb if isinstance(row[0].fill, PatternFill) else None
+        }
+        for row in kostenstelle_ws.iter_rows(min_row=2)
+    }
 
-    for row in range(16, end_row + 1):
-        key = copy_ws.cell(row=row, column=8).value
-        copy_ws.cell(row=row, column=2).value = kosten_dict.get(key, None)
+    green_cells = [k for k, v in kostenstelle_data.items() if v["A_fill"] == "FF90EE90"]
 
-    # Step 7: Write in column G based on conditions
-    for row in range(16, end_row + 1):
-        c_val = str(copy_ws.cell(row=row, column=3).value)
-        b_val = copy_ws.cell(row=row, column=2).value
-        if c_val.startswith(('705', '706', '707')) and b_val == 1001:
-            copy_ws.cell(row=row, column=7).value = "V0"
-        elif c_val.startswith(('705', '706', '707')) and b_val == 1002:
-            copy_ws.cell(row=row, column=7).value = "U0"
-        elif c_val.startswith('704') and b_val == 1001:
-            copy_ws.cell(row=row, column=7).value = "A0"
-        elif c_val.startswith(('705', '706', '707')) and b_val == 1002:
-            copy_ws.cell(row=row, column=7).value = "D0"
+    for r in range(16, end_row + 1):
+        h_val = copy_ws[f"H{r}"].value
+        if h_val in kostenstelle_data:
+            k_data = kostenstelle_data[h_val]
+            copy_ws[f"B{r}"].value = k_data["E"]
+            b_val = k_data["E"]
 
-    # Step 8: Column L text length and color
-    red_fill = PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid")
-    green_fill = PatternFill(start_color="90EE90", end_color="90EE90", fill_type="solid")
-    for row in range(16, end_row + 1):
-        d_val = str(copy_ws.cell(row=row, column=4).value or "")
-        text_length = len(d_val.replace(" ", ""))
-        cell = copy_ws.cell(row=row, column=12)
-        cell.value = text_length
-        cell.fill = red_fill if text_length >= 50 else green_fill
+            # G value logic
+            c_val = str(copy_ws[f"C{r}"].value)
+            if c_val.startswith(("705", "706", "707")) and b_val == 1001:
+                copy_ws[f"G{r}"].value = "V0"
+            elif c_val.startswith(("705", "706", "707")) and b_val == 1002:
+                copy_ws[f"G{r}"].value = "U0"
+            elif c_val.startswith("704") and b_val == 1001:
+                copy_ws[f"G{r}"].value = "A0"
+            elif c_val.startswith(("705", "706", "707")) and b_val == 1002:
+                copy_ws[f"G{r}"].value = "D0"
 
-    # Step 9: Advanced VLOOKUP for column M
-    green_cells = [kosten_ws.cell(row=r, column=1).value
-                   for r in range(2, kosten_ws.max_row + 1)
-                   if kosten_ws.cell(row=r, column=1).fill.start_color.rgb == "FF90EE90"]
+            # Column L: Text length of D (spaces excluded)
+            d_val = copy_ws[f"D{r}"].value
+            if d_val:
+                length = len(str(d_val).replace(" ", ""))
+                copy_ws[f"L{r}"].value = length
+                copy_ws[f"L{r}"].fill = red_fill if length >= 50 else green_fill
 
-    for row in range(16, end_row + 1):
-        h_val = copy_ws.cell(row=row, column=8).value
-        for r in range(2, kosten_ws.max_row + 1):
-            if kosten_ws.cell(row=r, column=1).value == h_val:
-                status = str(kosten_ws.cell(row=r, column=6).value).lower()
-                if status == 'aktiv':
-                    copy_ws.cell(row=row, column=13).value = h_val
-                elif status == 'inaktiv':
-                    i_val = kosten_ws.cell(row=r, column=9).value
-                    copy_ws.cell(row=row, column=13).value = i_val if i_val in green_cells else i_val
-                break
+            # Column M logic
+            f_val = k_data["F"]
+            if isinstance(f_val, str) and f_val.lower() == "aktiv":
+                copy_ws[f"M{r}"].value = None  # No value to write if aktiv
+            elif isinstance(f_val, str) and f_val.lower() == "inaktiv":
+                i_val = k_data["I"]
+                if i_val in green_cells:
+                    copy_ws[f"M{r}"].value = i_val
+                else:
+                    copy_ws[f"M{r}"].value = i_val
 
-    # Step 10: Formula in column K if G is A0 or D0, and delete H
-    for row in range(16, end_row + 1):
-        g_val = copy_ws.cell(row=row, column=7).value
-        if g_val in ["A0", "D0"]:
-            h_val = copy_ws.cell(row=row, column=8).value
-            if h_val is not None:
-                h_str = str(h_val).zfill(3)[-3:]
-                k_val = int("100000" + h_str)
-                copy_ws.cell(row=row, column=11).value = k_val
-                copy_ws.cell(row=row, column=8).value = None
+            # Column K formula logic
+            g_val = copy_ws[f"G{r}"].value
+            if g_val in ["A0", "D0"]:
+                h_cell_val = copy_ws[f"H{r}"].value
+                if h_cell_val:
+                    copy_ws[f"K{r}"].value = int("100000" + str(h_cell_val)[-3:])
+                    copy_ws[f"H{r}"].value = None
 
-    # Save the copy file
     copy_wb.save(copy_path)
-    messagebox.showinfo("Success", f"Processing completed. File saved at: {copy_path}")
+    messagebox.showinfo("Success", f"File processed and saved as {copy_path}")
 
+def main():
+    root = tk.Tk()
+    root.withdraw()
 
-# GUI Setup
-root = tk.Tk()
-root.title("Excel File Processor")
+    input_path = select_file("Select Input File")
+    if not input_path:
+        return
 
-input_file = ""
-kosten_file = ""
+    kostenstelle_path = select_file("Select Kostenstelle File")
+    if not kostenstelle_path:
+        return
 
-def select_input():
-    global input_file
-    input_file = select_file("Select Input File")
+    process_files(input_path, kostenstelle_path)
 
-def select_kosten():
-    global kosten_file
-    kosten_file = select_file("Select Kostenstelle File")
-
-def run_process():
-    if not input_file or not kosten_file:
-        messagebox.showerror("Error", "Please select both files before proceeding.")
-    else:
-        process_files(input_file, kosten_file)
-
-btn1 = tk.Button(root, text="Select Input File", command=select_input)
-btn1.pack(pady=5)
-
-btn2 = tk.Button(root, text="Select Kostenstelle File", command=select_kosten)
-btn2.pack(pady=5)
-
-btn3 = tk.Button(root, text="Process Files", command=run_process)
-btn3.pack(pady=10)
-
-root.mainloop()
+if __name__ == "__main__":
+    main()
