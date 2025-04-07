@@ -3,7 +3,6 @@ from tkinter import filedialog, messagebox
 import os
 import openpyxl
 from openpyxl.styles import PatternFill
-import win32com.client
 
 # Define color fills
 red_fill = PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid")
@@ -15,30 +14,6 @@ def browse_file(entry):
     if path:
         entry.delete(0, tk.END)
         entry.insert(0, path)
-
-def get_green_cells_using_win32(kostenstelle_path):
-    green_cells = {}
-    excel = win32com.client.Dispatch("Excel.Application")
-    excel.Visible = False
-    wb = excel.Workbooks.Open(os.path.abspath(kostenstelle_path))
-    ws = wb.Sheets(1)
-
-    last_row = ws.Cells(ws.Rows.Count, 1).End(-4162).Row  # xlUp = -4162
-    for row in range(2, last_row + 1):
-        cell = ws.Cells(row, 1)
-        color = cell.Interior.Color  # BGR int
-        blue = color // 65536
-        green = (color % 65536) // 256
-        red = color % 256
-        rgb = (red, green, blue)
-        print(f"Row {row}: A = {cell.Value}, Color = {rgb}")
-        if rgb == (144, 238, 144):  # Light green
-            green_cells[cell.Value] = ws.Cells(row, 9).Value  # Column I
-            print(f"  -> win32 detected green: A{row}={cell.Value}, I={ws.Cells(row, 9).Value}")
-
-    wb.Close(SaveChanges=0)
-    excel.Quit()
-    return green_cells
 
 def process_files(input_path, kostenstelle_path):
     input_dir = os.path.dirname(input_path)
@@ -68,18 +43,23 @@ def process_files(input_path, kostenstelle_path):
         for col in ["C", "D", "E", "F", "H"]:
             copy_ws[f"{col}{r}"].value = input_ws[f"{col}{r}"].value
 
-    # Load kostenstelle
+    # Load kostenstelle with data_only=True
     kostenstelle_wb = openpyxl.load_workbook(kostenstelle_path, data_only=True)
     kostenstelle_ws = kostenstelle_wb.active
 
-    # Get green cells using win32
-    green_i_map = get_green_cells_using_win32(kostenstelle_path)
-    green_a_values = set(green_i_map.keys())
-
-    # Create kostenstelle data
+    # Create lookup and identify green cell values in column A
     kostenstelle_data = {}
-    for row in kostenstelle_ws.iter_rows(min_row=2):
+    green_a_values = set()
+    green_i_map = {}
+    for i, row in enumerate(kostenstelle_ws.iter_rows(min_row=2), start=2):
         a_val = row[0].value
+        fill = row[0].fill
+        fill_color = fill.start_color.rgb if isinstance(fill, PatternFill) and fill.fill_type == "solid" else None
+        print(f"Row {i} in Kostenstelle: A={a_val}, Fill={fill_color}")
+        if fill_color == "FF90EE90":
+            green_a_values.add(a_val)
+            green_i_map[a_val] = row[8].value  # Map green A to its corresponding I value
+            print(f"  -> Registered green A cell: {a_val} with I={row[8].value}")
         kostenstelle_data[a_val] = {
             "E": row[4].value,
             "F": row[5].value,
