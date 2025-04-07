@@ -16,7 +16,9 @@ def browse_file(entry):
 
 def process_files(input_path, kostenstelle_path):
     input_dir = os.path.dirname(input_path)
-    input_wb = openpyxl.load_workbook(input_path)
+    
+    # Open both files with data_only=True
+    input_wb = openpyxl.load_workbook(input_path, data_only=True)
     input_ws = input_wb.active
 
     # Create a copy
@@ -24,8 +26,12 @@ def process_files(input_path, kostenstelle_path):
     input_wb.save(copy_path)
     input_wb.close()
 
-    copy_wb = openpyxl.load_workbook(copy_path)
+    copy_wb = openpyxl.load_workbook(copy_path, data_only=True)
     copy_ws = copy_wb.active
+
+    # Load kostenstelle with data_only=True
+    kostenstelle_wb = openpyxl.load_workbook(kostenstelle_path, data_only=True)
+    kostenstelle_ws = kostenstelle_wb.active
 
     # Find end row in original
     row = 16
@@ -42,18 +48,6 @@ def process_files(input_path, kostenstelle_path):
     for r in range(16, end_row + 1):
         for col in ["C", "D", "E", "F", "H"]:
             copy_ws[f"{col}{r}"].value = input_ws[f"{col}{r}"].value
-
-    # Save and close the copy workbook
-    copy_wb.save(copy_path)
-    copy_wb.close()
-
-    # Reopen the copy workbook with data_only=False
-    copy_wb = openpyxl.load_workbook(copy_path, data_only=False)
-    copy_ws = copy_wb.active
-
-    # Load kostenstelle with data_only=False
-    kostenstelle_wb = openpyxl.load_workbook(kostenstelle_path, data_only=False)
-    kostenstelle_ws = kostenstelle_wb.active
 
     # Create lookup and identify green cell values in column A
     kostenstelle_data = {}
@@ -101,6 +95,23 @@ def process_files(input_path, kostenstelle_path):
                 copy_ws[f"L{r}"].value = length
                 copy_ws[f"L{r}"].fill = red_fill if length >= 50 else green_fill
 
+    # Save and close the workbooks
+    copy_wb.save(copy_path)
+    copy_wb.close()
+    kostenstelle_wb.close()
+
+    # Reopen both files with data_only=False for processing column M
+    copy_wb = openpyxl.load_workbook(copy_path, data_only=False)
+    copy_ws = copy_wb.active
+    kostenstelle_wb = openpyxl.load_workbook(kostenstelle_path, data_only=False)
+    kostenstelle_ws = kostenstelle_wb.active
+
+    # Process column M
+    for r in range(16, end_row + 1):
+        h_val = copy_ws[f"H{r}"].value
+        if h_val in kostenstelle_data:
+            k_data = kostenstelle_data[h_val]
+
             # Column M logic
             f_val = k_data["F"]
             if isinstance(f_val, str):
@@ -117,14 +128,6 @@ def process_files(input_path, kostenstelle_path):
                     else:
                         copy_ws[f"M{r}"].value = i_val
                         print(f"  Writing '{i_val}' to M{r} from column I")
-
-            # Column K formula logic
-            g_val = copy_ws[f"G{r}"].value
-            if g_val in ["A0", "D0"]:
-                h_cell_val = copy_ws[f"H{r}"].value
-                if h_cell_val:
-                    copy_ws[f"K{r}"].value = int("100000" + str(h_cell_val)[-3:])
-                    copy_ws[f"H{r}"].value = None
 
     # Save the final changes
     copy_wb.save(copy_path)
