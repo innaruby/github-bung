@@ -6,7 +6,7 @@ from openpyxl.styles import PatternFill
 
 # Define color fills
 red_fill = PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid")
-green_fill = PatternFill(start_color="90EE90", end_color="90EE90", fill_type="solid")
+green_fill = PatternFill(start_color="FF90EE90", end_color="FF90EE90", fill_type="solid")
 
 # GUI callback to browse and store file paths
 def browse_file(entry):
@@ -52,7 +52,8 @@ def process_files(input_path, kostenstelle_path):
     green_cells = {}
     for row in kostenstelle_ws.iter_rows(min_row=2):
         a_val = row[0].value
-        fill_color = row[0].fill.start_color.rgb if isinstance(row[0].fill, PatternFill) else None
+        fill = row[0].fill
+        fill_color = fill.start_color.rgb if isinstance(fill, PatternFill) and fill.fill_type == "solid" else None
         if fill_color == "FF90EE90":
             green_cells[a_val] = row[8].value  # Store value in column I for green A cells
         kostenstelle_data[a_val] = {
