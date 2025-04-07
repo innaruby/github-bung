@@ -49,13 +49,15 @@ def process_files(input_path, kostenstelle_path):
 
     # Create lookup and identify green cell values in column A
     kostenstelle_data = {}
-    green_cells = {}
+    green_a_values = set()
+    green_i_map = {}
     for row in kostenstelle_ws.iter_rows(min_row=2):
         a_val = row[0].value
         fill = row[0].fill
         fill_color = fill.start_color.rgb if isinstance(fill, PatternFill) and fill.fill_type == "solid" else None
         if fill_color == "FF90EE90":
-            green_cells[a_val] = row[8].value  # Store value in column I for green A cells
+            green_a_values.add(a_val)
+            green_i_map[a_val] = row[8].value  # Map green A to its corresponding I value
         kostenstelle_data[a_val] = {
             "E": row[4].value,
             "F": row[5].value,
@@ -97,10 +99,10 @@ def process_files(input_path, kostenstelle_path):
                     print(f"  Writing 'okay' to M{r}")
                 elif f_val.lower() == "inaktiv":
                     i_val = k_data["I"]
-                    if i_val in green_cells:
-                        m_val = green_cells[i_val]  # Get I from green row where A = i_val
-                        copy_ws[f"M{r}"].value = m_val
-                        print(f"  Writing '{m_val}' to M{r} (from green-matched row)")
+                    if i_val in green_a_values:
+                        matched_value = green_i_map.get(i_val)
+                        copy_ws[f"M{r}"].value = matched_value
+                        print(f"  Writing '{matched_value}' to M{r} (from green A match)")
                     else:
                         copy_ws[f"M{r}"].value = i_val
                         print(f"  Writing '{i_val}' to M{r} from column I")
