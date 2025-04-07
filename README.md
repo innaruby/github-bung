@@ -8,14 +8,44 @@ from openpyxl.styles import PatternFill
 red_fill = PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid")
 green_fill = PatternFill(start_color="FF90EE90", end_color="FF90EE90", fill_type="solid")
 
+
 def browse_file(entry):
     path = filedialog.askopenfilename(filetypes=[("Excel files", "*.xlsx")])
     if path:
         entry.delete(0, tk.END)
         entry.insert(0, path)
 
-# Process column M logic
-def process_column_m(row_num, copy_ws, kostenstelle_data, kostenstelle_a_styles):
+# Extract fill colors from column A (Kostenstelle) and return {A_value: HEX}
+def get_column_a_colors(file_path, sheet_name='Sheet1'):
+    wb = openpyxl.load_workbook(file_path, data_only=False)
+    sheet = wb[sheet_name]
+
+    column_a_colors = {}
+
+    for row in sheet.iter_rows(min_col=1, max_col=1, min_row=2):  # Skip header
+        cell = row[0]
+        a_val = cell.value
+        fill = cell.fill
+
+        if fill is not None and fill.fill_type == "solid":
+            color = fill.start_color
+            color_hex = color.rgb if color.type == 'rgb' else color.index
+        else:
+            color_hex = None
+
+        column_a_colors[a_val] = color_hex
+
+        # Print for debug
+        if color_hex:
+            print(f"[DEBUG] Cell {cell.coordinate}: A={a_val}, HEX={color_hex}")
+        else:
+            print(f"[DEBUG] Cell {cell.coordinate}: A={a_val}, No fill")
+
+    wb.close()
+    return column_a_colors
+
+# Process logic for column M
+def process_column_m(row_num, copy_ws, kostenstelle_data, kostenstelle_a_colors):
     print(f"\n[DEBUG] Processing Column M for row {row_num}")
     h_val = copy_ws[f"H{row_num}"].value
     print(f"[DEBUG] H{row_num} value: {h_val}")
@@ -36,16 +66,17 @@ def process_column_m(row_num, copy_ws, kostenstelle_data, kostenstelle_a_styles)
             copy_ws[f"M{row_num}"].value = "okay"
             print(f"[DEBUG] Writing 'okay' to M{row_num}")
         elif f_val_lower == "inaktiv":
-            is_green = kostenstelle_a_styles.get(i_val, False)
-            if is_green:
-                matched_value = k_data["I"]
-                copy_ws[f"M{row_num}"].value = matched_value
-                print(f"[DEBUG] Green fill detected for I='{i_val}'. Writing: '{matched_value}' to M{row_num}")
+            fill_color = kostenstelle_a_colors.get(i_val)
+            print(f"[DEBUG] Fill color for I='{i_val}': {fill_color}")
+            if fill_color == "FF90EE90":
+                copy_ws[f"M{row_num}"].value = i_val
+                print(f"[DEBUG] Green fill detected. Writing I value '{i_val}' to M{row_num}")
             else:
                 copy_ws[f"M{row_num}"].value = i_val
-                print(f"[DEBUG] No green fill for I='{i_val}'. Writing: '{i_val}' to M{row_num}")
+                print(f"[DEBUG] Non-green fill. Writing I value '{i_val}' to M{row_num}")
     else:
         print(f"[DEBUG] F value is not a string or is missing for H{row_num}")
+
 
 def process_files(input_path, kostenstelle_path):
     input_dir = os.path.dirname(input_path)
@@ -106,9 +137,9 @@ def process_files(input_path, kostenstelle_path):
 
             g_val = copy_ws[f"G{r}"].value
             if g_val in ["A0", "D0"]:
-                h_val = copy_ws[f"H{r}"].value
-                if h_val:
-                    copy_ws[f"K{r}"].value = int("100000" + str(h_val)[-3:])
+                h_cell_val = copy_ws[f"H{r}"].value
+                if h_cell_val:
+                    copy_ws[f"K{r}"].value = int("100000" + str(h_cell_val)[-3:])
                     copy_ws[f"H{r}"].value = None
 
     copy_wb.save(copy_path)
@@ -116,28 +147,11 @@ def process_files(input_path, kostenstelle_path):
     copy_wb.close()
     kostenstelle_wb.close()
 
-    # Step 2: capture fill color from column A (data_only=False)
-    print("\n[DEBUG] Loading styles from column A in 'Kostenstelle'...")
+    # Step: Read fill colors from column A (Kostenstelle)
+    print("\n[DEBUG] Reading fill colors from column A...")
+    kostenstelle_a_colors = get_column_a_colors(kostenstelle_path)
 
-    kostenstelle_wb = openpyxl.load_workbook(kostenstelle_path, data_only=False)
-    kostenstelle_ws = kostenstelle_wb.active
-    kostenstelle_a_styles = {}
-
-    for row_idx, row in enumerate(kostenstelle_ws.iter_rows(min_row=2), start=2):
-        a_cell = row[0]
-        a_val = a_cell.value
-        fill = a_cell.fill
-        is_green = (
-            isinstance(fill, PatternFill)
-            and fill.fill_type == "solid"
-            and fill.start_color.rgb == "FF90EE90"
-        )
-        kostenstelle_a_styles[a_val] = is_green
-        print(f"[DEBUG] Row {row_idx}: A={a_val}, Green Fill={is_green}")
-
-    kostenstelle_wb.close()
-
-    # Step 3: reopen for final processing with data_only=True
+    # Step: Reopen files for M processing
     copy_wb = openpyxl.load_workbook(copy_path, data_only=True)
     copy_ws = copy_wb.active
     kostenstelle_wb = openpyxl.load_workbook(kostenstelle_path, data_only=True)
@@ -153,13 +167,14 @@ def process_files(input_path, kostenstelle_path):
         }
 
     for r in range(16, end_row + 1):
-        process_column_m(r, copy_ws, kostenstelle_data, kostenstelle_a_styles)
+        process_column_m(r, copy_ws, kostenstelle_data, kostenstelle_a_colors)
 
     copy_wb.save(copy_path)
     copy_wb.close()
     kostenstelle_wb.close()
 
     messagebox.showinfo("Success", f"File processed and saved as {copy_path}")
+
 
 def main():
     root = tk.Tk()
@@ -185,6 +200,7 @@ def main():
 
     tk.Button(root, text="Process Files", command=run_process, bg="lightblue").grid(row=2, column=1, pady=20)
     root.mainloop()
+
 
 if __name__ == "__main__":
     main()
