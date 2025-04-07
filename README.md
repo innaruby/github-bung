@@ -55,7 +55,7 @@ def process_files(input_path, kostenstelle_path):
     input_wb = openpyxl.load_workbook(input_path)
     input_ws = input_wb.active
 
-    # Create a copy
+    # Create a copy of the input
     copy_path = os.path.join(input_dir, "copy_of_input.xlsx")
     input_wb.save(copy_path)
 
@@ -73,24 +73,30 @@ def process_files(input_path, kostenstelle_path):
     for r in range(16, end_row + 1):
         copy_ws[f"B{r}"].value = None
 
-    # Copy C,D,E,F,H
+    # Copy C,D,E,F,H from input to copy
     for r in range(16, end_row + 1):
         for col in ["C", "D", "E", "F", "H"]:
             copy_ws[f"{col}{r}"].value = input_ws[f"{col}{r}"].value
 
-    # Load kostenstelle with data_only=True
+    # Load kostenstelle with data_only=True for first pass processing
     kostenstelle_wb = openpyxl.load_workbook(kostenstelle_path, data_only=True)
     kostenstelle_ws = kostenstelle_wb.active
 
-    # Prepare lookup
+    # Prepare lookup for kostenstelle_data and green cell properties
     kostenstelle_data = {}
     green_a_values = set()
     green_i_map = {}
+    column_a_cell_properties = {}
+
+    # Store cell properties (fill color) of cells in column A
     for i, row in enumerate(kostenstelle_ws.iter_rows(min_row=2), start=2):
         a_val = row[0].value
         fill = row[0].fill
         fill_color = fill.start_color.rgb if isinstance(fill, PatternFill) and fill.fill_type == "solid" else None
-        if fill_color == "FF90EE90":
+        column_a_cell_properties[a_val] = fill_color  # Store cell color in column A
+        print(f"[DEBUG] A{a_val} fill color: {fill_color}")
+
+        if fill_color == "FF90EE90":  # Green fill
             green_a_values.add(a_val)
             green_i_map[a_val] = row[8].value
         kostenstelle_data[a_val] = {
@@ -133,27 +139,30 @@ def process_files(input_path, kostenstelle_path):
                     copy_ws[f"K{r}"].value = int("100000" + str(h_val)[-3:])
                     copy_ws[f"H{r}"].value = None
 
-    # Save and close before M
+    # Save and close before processing column M
     copy_wb.save(copy_path)
     input_wb.close()
     copy_wb.close()
     kostenstelle_wb.close()
 
-    # Reopen both with data_only=False for column M
-    copy_wb = openpyxl.load_workbook(copy_path, data_only=False)
-    copy_ws = copy_wb.active
+    # Open kostenstelle file again, this time with data_only=False, to read cell properties
     kostenstelle_wb = openpyxl.load_workbook(kostenstelle_path, data_only=False)
     kostenstelle_ws = kostenstelle_wb.active
 
-    # Rebuild lookup
+    # Rebuild the kostenstelle_data and the green cells properties with data_only=False
     kostenstelle_data = {}
     green_a_values = set()
     green_i_map = {}
+
+    # Store the cell properties in column A
     for i, row in enumerate(kostenstelle_ws.iter_rows(min_row=2), start=2):
         a_val = row[0].value
         fill = row[0].fill
         fill_color = fill.start_color.rgb if isinstance(fill, PatternFill) and fill.fill_type == "solid" else None
-        if fill_color == "FF90EE90":
+        column_a_cell_properties[a_val] = fill_color  # Store cell color in column A
+        print(f"[DEBUG] A{a_val} (second pass) fill color: {fill_color}")
+
+        if fill_color == "FF90EE90":  # Green fill
             green_a_values.add(a_val)
             green_i_map[a_val] = row[8].value
         kostenstelle_data[a_val] = {
@@ -161,6 +170,10 @@ def process_files(input_path, kostenstelle_path):
             "F": row[5].value,
             "I": row[8].value,
         }
+
+    # Open copy file with data_only=True for the final processing of column M
+    copy_wb = openpyxl.load_workbook(copy_path, data_only=True)
+    copy_ws = copy_wb.active
 
     # Final pass: process column M
     for r in range(16, end_row + 1):
