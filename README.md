@@ -3,7 +3,7 @@ from tkinter import filedialog, messagebox
 import os
 import openpyxl
 from openpyxl.styles import PatternFill
-import xlwings as xw
+import win32com.client
 
 # Define color fills
 red_fill = PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid")
@@ -16,20 +16,28 @@ def browse_file(entry):
         entry.delete(0, tk.END)
         entry.insert(0, path)
 
-def get_green_cells_using_xlwings(kostenstelle_path):
+def get_green_cells_using_win32(kostenstelle_path):
     green_cells = {}
-    wb = xw.Book(kostenstelle_path)
-    sheet = wb.sheets[0]
-    last_row = sheet.range("A" + str(sheet.cells.last_cell.row)).end("up").row
+    excel = win32com.client.Dispatch("Excel.Application")
+    excel.Visible = False
+    wb = excel.Workbooks.Open(os.path.abspath(kostenstelle_path))
+    ws = wb.Sheets(1)
 
+    last_row = ws.Cells(ws.Rows.Count, 1).End(-4162).Row  # xlUp = -4162
     for row in range(2, last_row + 1):
-        cell = sheet.range(f"A{row}")
-        color = cell.color  # RGB tuple
-        if color == (144, 238, 144):  # Light green
-            green_cells[cell.value] = sheet.range(f"I{row}").value
-            print(f"  -> xlwings detected green: A{row}={cell.value}, I={sheet.range(f'I{row}').value}")
+        cell = ws.Cells(row, 1)
+        color = cell.Interior.Color  # BGR int
+        blue = color // 65536
+        green = (color % 65536) // 256
+        red = color % 256
+        rgb = (red, green, blue)
+        print(f"Row {row}: A = {cell.Value}, Color = {rgb}")
+        if rgb == (144, 238, 144):  # Light green
+            green_cells[cell.Value] = ws.Cells(row, 9).Value  # Column I
+            print(f"  -> win32 detected green: A{row}={cell.Value}, I={ws.Cells(row, 9).Value}")
 
-    wb.close()
+    wb.Close(SaveChanges=0)
+    excel.Quit()
     return green_cells
 
 def process_files(input_path, kostenstelle_path):
@@ -64,8 +72,8 @@ def process_files(input_path, kostenstelle_path):
     kostenstelle_wb = openpyxl.load_workbook(kostenstelle_path, data_only=True)
     kostenstelle_ws = kostenstelle_wb.active
 
-    # Get green cells using xlwings
-    green_i_map = get_green_cells_using_xlwings(kostenstelle_path)
+    # Get green cells using win32
+    green_i_map = get_green_cells_using_win32(kostenstelle_path)
     green_a_values = set(green_i_map.keys())
 
     # Create kostenstelle data
