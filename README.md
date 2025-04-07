@@ -171,6 +171,12 @@ def execute_script2():
         auto_adjust_column_width(workbook['RLB mit Teilkonzerne'])
         auto_adjust_column_width(workbook['Kifi mit Teilkonzerne'])
 
+        # 🔻 Delete row 4 and 5 (Excel) from specific sheets
+        for sheet_name in ['KIFI', 'RLB mit Teilkonzerne', 'Kifi mit Teilkonzerne']:
+            if sheet_name in workbook.sheetnames:
+                sheet = workbook[sheet_name]
+                sheet.delete_rows(4, 2)
+
         workbook.save(file_path)
 
         root = tk.Tk()
