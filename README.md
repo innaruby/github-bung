@@ -1,215 +1,211 @@
-import tkinter as tk
-from tkinter import filedialog, messagebox
-import os
-import openpyxl
-from openpyxl.styles import PatternFill
-
-# Acceptable green fill variations
-GREEN_HEX_CODES = {"FF90EE90", "FF92D050", "FF00FF00"}
-
-# Define color fills for column L
-red_fill = PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid")
-green_fill = PatternFill(start_color="FF90EE90", end_color="FF90EE90", fill_type="solid")
-
-
-def browse_file(entry):
-    path = filedialog.askopenfilename(filetypes=[("Excel files", "*.xlsx")])
-    if path:
-        entry.delete(0, tk.END)
-        entry.insert(0, path)
-
-
-def get_column_a_colors(file_path, sheet_name='Sheet1'):
-    wb = openpyxl.load_workbook(file_path, data_only=False)
-    sheet = wb[sheet_name]
-
-    column_a_colors = {}
-    green_i_lookup = {}
-    unique_colors = set()
-
-    for row in sheet.iter_rows(min_row=2):
-        a_cell = row[0]
-        i_cell = row[8]
-        a_val = a_cell.value
-        i_val = i_cell.value
-        fill = a_cell.fill
-
-        if fill and fill.fill_type == "solid":
-            color = fill.start_color
-            color_hex = color.rgb if color.type == 'rgb' else color.index
+def execute_script2():
+    try:
+        # Directory and file identification
+        date = date_entry.get()
+        month = int(date.split('.')[0])
+        if 1 <= month <= 3:
+                    Quartal = "1. Quartal"
+        elif 4 <= month <= 6:
+                    Quartal = "2. Quartal"
+        elif 7 <= month <= 9:
+                    Quartal = "3. Quartal"
+        elif 10 <= month <= 12:
+                    Quartal = "4. Quartal"
         else:
-            color_hex = None
+                    Quartal = "Invalid month"
+            # Extract the year from the date entered in MM.YYYY format
+        year = date.split('.')[1]
+        base_path = rf'U:\\Skript zum Aufrufen'
+        file_name = next((file for file in os.listdir(base_path) if file.startswith('KONBUCH') and file.endswith('.xlsx')), None)
 
-        column_a_colors[a_val] = color_hex
+        if not file_name:
+            raise FileNotFoundError("No file starting with 'KONBUCH' found in the directory.")
 
-        if color_hex in GREEN_HEX_CODES:
-            green_i_lookup[a_val] = i_val
+        # Load all sheets into a dictionary of DataFrames
+        file_path = os.path.join(base_path, file_name)
+        sheets = pd.read_excel(file_path, sheet_name=None, header=None)
 
-        if color_hex:
-            unique_colors.add(color_hex)
-            print(f"[DEBUG] Cell {a_cell.coordinate}: A={a_val}, HEX={color_hex}")
-        else:
-            print(f"[DEBUG] Cell {a_cell.coordinate}: A={a_val}, No fill")
+        # Extract specific sheets
+        df_rlbooe = sheets.get('RLBOOE')
+        df_rlbooe_mit_teilkonzerne = sheets.get('RLB mit Teilkonzerne')
+        df_rlz_mapping = sheets.get('RLZ Mapping I7 und N7').iloc[11:]
+        df_kifi = sheets.get('KIFI')
+        df_kifi_mit_teilkonzerne = sheets.get('Kifi mit Teilkonzerne')
 
-    wb.close()
-    print(f"\n[DEBUG] Unique fill colors in column A: {unique_colors}")
-    return column_a_colors, green_i_lookup
+        # Step to filter and move rows from RLBOOE to KIFI
+        values_to_move = {'ILI', 'ILG', 'KIFI'}
+        rows_to_move = df_rlbooe[df_rlbooe[0].isin(values_to_move)]
+        df_rlbooe = df_rlbooe[~df_rlbooe[0].isin(values_to_move)]
+        df_kifi = pd.concat([df_kifi, rows_to_move], ignore_index=True)
 
+        # Convert date columns to strings in the desired format
+        date_format = '%d.%b.%y'
+        df_rlbooe[34] = pd.to_datetime(df_rlbooe[34], errors='coerce').dt.strftime(date_format)
+        df_rlbooe[40] = pd.to_datetime(df_rlbooe[40], errors='coerce').dt.strftime(date_format)
 
-def process_column_m(row_num, copy_ws, kostenstelle_data, column_a_colors, green_i_lookup):
-    print(f"\n[DEBUG] Processing Column M for row {row_num}")
-    h_val = copy_ws[f"H{row_num}"].value
-    print(f"[DEBUG] H{row_num} value: {h_val}")
+        # Function to copy data to sections
+        def copy_data_to_sections(source_df, target_df):
+            target_df = target_df.reindex(range(len(source_df)), fill_value=None)
+            target_df.iloc[:, :source_df.shape[1]] = source_df.values
 
-    if h_val not in kostenstelle_data:
-        print(f"[DEBUG] No match in kostenstelle_data for H{row_num}")
-        return
+            specific_data_to_copy = source_df.iloc[:, :21]
+            target_df = target_df.reindex(columns=range(max(66, target_df.shape[1])), fill_value=None)
 
-    k_data = kostenstelle_data[h_val]
-    f_val = k_data.get("F")
-    i_val = k_data.get("I")
-    print(f"[DEBUG] F = {f_val}, I = {i_val}")
+            target_df.iloc[:, 43:56] = specific_data_to_copy.iloc[:, :13].values
+            target_df.iloc[:, 57:59] = specific_data_to_copy.iloc[:, 13:15].values
+            target_df.iloc[:, 60:66] = specific_data_to_copy.iloc[:, 15:21].values
 
-    if isinstance(f_val, str):
-        f_val_lower = f_val.lower()
-        if f_val_lower == "aktiv":
-            copy_ws[f"M{row_num}"].value = "okay"
-            print(f"[DEBUG] F is 'aktiv' → Writing 'okay' to M{row_num}")
-        elif f_val_lower == "inaktiv":
-            fill_color = column_a_colors.get(i_val)
-            print(f"[DEBUG] Fill color for A={i_val}: {fill_color}")
-            if i_val in green_i_lookup:
-                matched_i = green_i_lookup[i_val]
-                copy_ws[f"M{row_num}"].value = matched_i
-                print(f"[DEBUG] Green A match found → Writing matched I='{matched_i}' to M{row_num}")
-            else:
-                copy_ws[f"M{row_num}"].value = i_val
-                print(f"[DEBUG] No green A match → Writing I='{i_val}' to M{row_num}")
-    else:
-        print(f"[DEBUG] Invalid or missing F for row {row_num}")
+            return target_df
 
+        # Function to perform the VLOOKUP-like operation
+        def perform_vlookup_and_update(target_df, mapping_df):
+            lookup_dict = mapping_df.set_index(0)[2].to_dict()
+            target_df[52] = target_df[9].map(lookup_dict).fillna("kein Mapping Vorhanden")
+            return target_df
 
-def process_files(input_path, kostenstelle_path):
-    input_dir = os.path.dirname(input_path)
-    input_wb = openpyxl.load_workbook(input_path)
-    input_ws = input_wb.active
+        # Function to perform the additional check and update
+        def check_and_update_bd_column(target_df, mapping_df):
+            lookup_dict = mapping_df.set_index(2)[3].to_dict()
+            target_df[55] = target_df[52].map(lookup_dict).fillna("kein Mapping Vorhanden")
+            return target_df
 
-    copy_path = os.path.join(input_dir, "copy_of_input.xlsx")
-    input_wb.save(copy_path)
+        # Function to update column BN based on column BD
+        def update_bn_column(target_df):
+            target_df[65] = target_df.apply(lambda row: row[20] if row[55] != "kein Mapping Vorhanden" else "kein Mapping Vorhanden", axis=1)
+            return target_df
 
-    copy_wb = openpyxl.load_workbook(copy_path)
-    copy_ws = copy_wb.active
+        # Function to update column BB based on column K and Umgliederung sheet
+        def update_bb_column(target_df, specific_value):
+            target_df[53] = specific_value
+            return target_df
 
-    row = 16
-    while input_ws[f"C{row}"].value:
-        row += 1
-    end_row = row - 1
-    print(f"Detected end row: {end_row}")
+        # Function to update column BE based on column BF
+        def update_be_column(target_df):
+            target_df[56] = target_df[57].apply(lambda x: "H" if x in [0, 0.00, 0.0000, "0,00"] else "S")
+            return target_df
 
-    for r in range(16, end_row + 1):
-        copy_ws[f"B{r}"].value = None
-        for col in ["C", "D", "E", "F", "H"]:
-            copy_ws[f"{col}{r}"].value = input_ws[f"{col}{r}"].value
+        # Apply the function to the relevant sheet
+        df_rlbooe_mit_teilkonzerne = copy_data_to_sections(df_rlbooe, df_rlbooe_mit_teilkonzerne)
 
-    kostenstelle_wb = openpyxl.load_workbook(kostenstelle_path, data_only=True)
-    kostenstelle_ws = kostenstelle_wb.active
+        # Perform VLOOKUP and update
+        df_rlbooe_mit_teilkonzerne = perform_vlookup_and_update(df_rlbooe_mit_teilkonzerne, df_rlz_mapping)
 
-    kostenstelle_data = {}
-    for row in kostenstelle_ws.iter_rows(min_row=2):
-        a_val = row[0].value
-        kostenstelle_data[a_val] = {
-            "E": row[4].value,
-            "F": row[5].value,
-            "I": row[8].value
-        }
+        # Perform the additional check and update
+        df_rlbooe_mit_teilkonzerne = check_and_update_bd_column(df_rlbooe_mit_teilkonzerne, df_rlz_mapping)
 
-    for r in range(16, end_row + 1):
-        h_val = copy_ws[f"H{r}"].value
-        if h_val in kostenstelle_data:
-            k_data = kostenstelle_data[h_val]
-            b_val = k_data["E"]
-            copy_ws[f"B{r}"].value = b_val
+        df_rlbooe_mit_teilkonzerne = update_bn_column(df_rlbooe_mit_teilkonzerne)
 
-            c_val = str(copy_ws[f"C{r}"].value)
-            if c_val.startswith(("705", "706", "707")) and b_val == 1001:
-                copy_ws[f"G{r}"].value = "V0"
-            elif c_val.startswith(("705", "706", "707")) and b_val == 1002:
-                copy_ws[f"G{r}"].value = "U0"
-            elif c_val.startswith("704") and b_val == 1001:
-                copy_ws[f"G{r}"].value = "A0"
-            elif c_val.startswith(("705", "706", "707")) and b_val == 1002:
-                copy_ws[f"G{r}"].value = "D0"
+        # Update column BB based on column K and Umgliederung sheet
+        df_rlbooe_mit_teilkonzerne = update_bb_column(df_rlbooe_mit_teilkonzerne, "B100")
 
-            d_val = copy_ws[f"D{r}"].value
-            if d_val:
-                length = len(str(d_val).replace(" ", ""))
-                copy_ws[f"L{r}"].value = length
-                copy_ws[f"L{r}"].fill = red_fill if length >= 50 else green_fill
+        # Update column BE based on column BF
+        df_rlbooe_mit_teilkonzerne = update_be_column(df_rlbooe_mit_teilkonzerne)
 
-            g_val = copy_ws[f"G{r}"].value
-            if g_val in ["A0", "D0"]:
-                h_cell_val = copy_ws[f"H{r}"].value
-                if h_cell_val:
-                    copy_ws[f"K{r}"].value = int("100000" + str(h_cell_val)[-3:])
-                    copy_ws[f"H{r}"].value = None
+        # Function to cut and paste rows based on specific values in a column
+        def cut_and_paste_rows_by_values(source_df, target_df, values):
+            rows_to_move = source_df[source_df[0].isin(values)]
+            source_df = source_df[~source_df[0].isin(values)]
+            target_df = pd.concat([target_df, rows_to_move], ignore_index=True)
+            return source_df, target_df
 
-    copy_wb.save(copy_path)
-    input_wb.close()
-    copy_wb.close()
-    kostenstelle_wb.close()
+        # Define the values to cut and paste for the sheet
+        values_rlbooe = {'KIFI', 'ILG', 'ILI'}
 
-    print("\n[DEBUG] Reading fill colors from column A...")
-    column_a_colors, green_i_lookup = get_column_a_colors(kostenstelle_path)
+        # Cut and paste rows in the DataFrame
+        df_rlbooe_mit_teilkonzerne, df_kifi_mit_teilkonzerne = cut_and_paste_rows_by_values(df_rlbooe_mit_teilkonzerne, df_kifi_mit_teilkonzerne, values_rlbooe)
 
-    copy_wb = openpyxl.load_workbook(copy_path, data_only=True)
-    copy_ws = copy_wb.active
-    kostenstelle_wb = openpyxl.load_workbook(kostenstelle_path, data_only=True)
-    kostenstelle_ws = kostenstelle_wb.active
+        # Function to filter rows based on column AG (index 32) being 5
+        def filter_rows_based_on_ag(df):
+            df[32] = pd.to_numeric(df[32], errors='coerce')
+            return df[df[32] == 5]
 
-    kostenstelle_data = {}
-    for row in kostenstelle_ws.iter_rows(min_row=2):
-        a_val = row[0].value
-        kostenstelle_data[a_val] = {
-            "E": row[4].value,
-            "F": row[5].value,
-            "I": row[8].value
-        }
+        # Apply the filtering to the DataFrame
+        df_rlbooe_mit_teilkonzerne = filter_rows_based_on_ag(df_rlbooe_mit_teilkonzerne)
 
-    for r in range(16, end_row + 1):
-        process_column_m(r, copy_ws, kostenstelle_data, column_a_colors, green_i_lookup)
+        # Convert specified columns to European format
+        def convert_to_european_format(value):
+            if isinstance(value, str):
+                value = value.replace('.', '').replace(',', '.')
+                try:
+                    return float(value)
+                except ValueError:
+                    return value
+            return value
 
-    copy_wb.save(copy_path)
-    copy_wb.close()
-    kostenstelle_wb.close()
+        def apply_european_formatting_to_columns(df, columns):
+            for column in columns:
+                df[column] = df[column].apply(convert_to_european_format)
+            return df
 
-    messagebox.showinfo("Success", f"File processed and saved as {copy_path}")
+        columns_to_convert = [13, 14, 15, 57, 58, 60]
+        df_rlbooe_mit_teilkonzerne = apply_european_formatting_to_columns(df_rlbooe_mit_teilkonzerne, columns_to_convert)
 
+        # Apply the same processing steps to the KIFI sheet
+        df_kifi_mit_teilkonzerne = copy_data_to_sections(df_kifi, df_kifi_mit_teilkonzerne)
+        df_kifi_mit_teilkonzerne = perform_vlookup_and_update(df_kifi_mit_teilkonzerne, df_rlz_mapping)
+        df_kifi_mit_teilkonzerne = check_and_update_bd_column(df_kifi_mit_teilkonzerne, df_rlz_mapping)
+        df_kifi_mit_teilkonzerne = update_bn_column(df_kifi_mit_teilkonzerne)
+        df_kifi_mit_teilkonzerne = update_bb_column(df_kifi_mit_teilkonzerne, "B100")
+        df_kifi_mit_teilkonzerne = update_be_column(df_kifi_mit_teilkonzerne)
+        df_kifi_mit_teilkonzerne = filter_rows_based_on_ag(df_kifi_mit_teilkonzerne)
+        df_kifi_mit_teilkonzerne = apply_european_formatting_to_columns(df_kifi_mit_teilkonzerne, columns_to_convert)
 
-def main():
-    root = tk.Tk()
-    root.title("Excel Processing GUI")
+        # Function to filter rows based on column D and E values
+        def filter_rows(df):
+            return df[(df[3] != 'SK') | (df[4] != '99')]
 
-    tk.Label(root, text="Input File (original)").grid(row=0, column=0, padx=10, pady=10)
-    input_entry = tk.Entry(root, width=50)
-    input_entry.grid(row=0, column=1)
-    tk.Button(root, text="Browse", command=lambda: browse_file(input_entry)).grid(row=0, column=2)
+        # Apply the filter to both sheets
+        df_rlbooe_mit_teilkonzerne = filter_rows(df_rlbooe_mit_teilkonzerne)
+        df_kifi_mit_teilkonzerne = filter_rows(df_kifi_mit_teilkonzerne)
 
-    tk.Label(root, text="Kostenstelle File").grid(row=1, column=0, padx=10, pady=10)
-    kostenstelle_entry = tk.Entry(root, width=50)
-    kostenstelle_entry.grid(row=1, column=1)
-    tk.Button(root, text="Browse", command=lambda: browse_file(kostenstelle_entry)).grid(row=1, column=2)
+        # Load the workbook to preserve formatting
+        workbook = load_workbook(file_path)
 
-    def run_process():
-        input_path = input_entry.get()
-        kostenstelle_path = kostenstelle_entry.get()
-        if not input_path or not kostenstelle_path:
-            messagebox.showerror("Error", "Both file paths are required!")
-            return
-        process_files(input_path, kostenstelle_path)
+        # Function to write data back to the sheet
+        def write_data_to_sheet(sheet_name, df):
+            print(f"Writing to sheet: {sheet_name}")
+            sheet = workbook[sheet_name]
+            for row_idx, row in enumerate(df.itertuples(index=False, name=None), start=4):  # Start from row 4
+                for col_idx, value in enumerate(row, start=1):
+                    cell = sheet.cell(row=row_idx, column=col_idx, value=value)
+                    # Apply European number format to specific columns
+                    if col_idx in [14, 15, 16, 58, 59, 61]:  # N, O, BF, BG
+                        cell.number_format = '#,##0.00'
 
-    tk.Button(root, text="Process Files", command=run_process, bg="lightblue").grid(row=2, column=1, pady=20)
-    root.mainloop()
+        # Write the modified data back to the sheets
+        write_data_to_sheet('RLB mit Teilkonzerne', df_rlbooe_mit_teilkonzerne)
+        write_data_to_sheet('KIFI', df_kifi)
+        write_data_to_sheet('Kifi mit Teilkonzerne', df_kifi_mit_teilkonzerne)
 
+        # Function to auto-adjust column width
+        def auto_adjust_column_width(sheet):
+            columns_to_adjust = ['M', 'N', 'O', 'P', 'U', 'V', 'BA', 'BF', 'BG', 'BN', 'BB', 'BD', 'BI']
+            
+            for column_letter in columns_to_adjust:
+                max_length = 0
+                for cell in sheet[column_letter]:
+                    try:
+                        if len(str(cell.value)) > max_length:
+                            max_length = len(str(cell.value))
+                    except:
+                        pass
+                adjusted_width = (max_length + 2)
+                sheet.column_dimensions[column_letter].width = adjusted_width
 
-if __name__ == "__main__":
-    main()
+        workbook['RLB mit Teilkonzerne']['BO4'] = 'B01 B100 SK 08'
+        workbook['Kifi mit Teilkonzerne']['BO4'] = 'B01 B99 SK 08'
+
+        # Adjust column widths for better readability
+        auto_adjust_column_width(workbook['RLB mit Teilkonzerne'])
+        auto_adjust_column_width(workbook['Kifi mit Teilkonzerne'])
+
+        # Save the workbook
+        workbook.save(file_path)
+
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showinfo("Erfolgreich")
+        root.destroy()
+
+    except Exception as e:
+        print(f"An error occurred during execution: {e}")           in this code , how is it copying data from RLBOOE to KIFI sheet , means from which row of the rlbooe to which row of the kifi sheet ?
