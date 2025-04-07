@@ -51,8 +51,8 @@ def process_files(input_path, kostenstelle_path):
     copy_wb = openpyxl.load_workbook(copy_path, data_only=False)
     copy_ws = copy_wb.active
 
-    # Load kostenstelle with data_only=True
-    kostenstelle_wb = openpyxl.load_workbook(kostenstelle_path, data_only=True)
+    # Load kostenstelle with data_only=False
+    kostenstelle_wb = openpyxl.load_workbook(kostenstelle_path, data_only=False)
     kostenstelle_ws = kostenstelle_wb.active
 
     # Create lookup and identify green cell values in column A
