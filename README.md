@@ -1,188 +1,58 @@
-def execute_script2():
-    try:
-        # Directory and file identification
-        date = date_entry.get()
-        month = int(date.split('.')[0])
-        if 1 <= month <= 3:
-            Quartal = "1. Quartal"
-        elif 4 <= month <= 6:
-            Quartal = "2. Quartal"
-        elif 7 <= month <= 9:
-            Quartal = "3. Quartal"
-        elif 10 <= month <= 12:
-            Quartal = "4. Quartal"
-        else:
-            Quartal = "Invalid month"
-        year = date.split('.')[1]
+i Have an Excel file . i Need to apply python code for the whole process. 
+In the Excel file , i want to Hide some columns , i want to apply Formula in some columns starting from a particular row and ending at a particular row . 
 
-        base_path = rf'U:\\Skript zum Aufrufen'
-        file_name = next((file for file in os.listdir(base_path) if file.startswith('KONBUCH') and file.endswith('.xlsx')), None)
-        if not file_name:
-            raise FileNotFoundError("No file starting with 'KONBUCH' found in the directory.")
-        file_path = os.path.join(base_path, file_name)
+The exact process is like this , 
+open all the Excel files in the current given Directory one after the other except the file starting with Kostenstelle because that file is used for v-lookup Purpose only. 
+In the Excel file which is opened,
 
-        sheets = pd.read_excel(file_path, sheet_name=None, header=None)
-        df_rlbooe = sheets.get('RLBOOE')
-        df_rlbooe_mit_teilkonzerne = sheets.get('RLB mit Teilkonzerne')
-        df_rlz_mapping = sheets.get('RLZ Mapping I7 und N7').iloc[11:]
-        df_kifi = sheets.get('KIFI')
-        df_kifi_mit_teilkonzerne = sheets.get('Kifi mit Teilkonzerne')
+first identify whether the sheet Name is written in green or yellow . 
+it can be any green or any type of yellow. 
+So if the program identifies the place where we write the sheet Name is filled with yellow , then do the following process. 
 
-        # Move rows from RLBOOE to KIFI, considering from row 4 onward
-        values_to_move = {'ILI', 'ILG', 'KIFI'}
-        rlbooe_data = df_rlbooe.iloc[3:].copy()
-        rows_to_move = rlbooe_data[rlbooe_data[0].isin(values_to_move)]
-        remaining_rlbooe = rlbooe_data[~rlbooe_data[0].isin(values_to_move)]
-        df_rlbooe = pd.concat([df_rlbooe.iloc[:3], remaining_rlbooe], ignore_index=True)
+at first identify the end row , the end row is identified by the following logic , 
 
-        df_kifi_data = df_kifi.iloc[3:].copy()
-        df_kifi_header = df_kifi.iloc[:3]
-        df_kifi_updated = pd.concat([df_kifi_data, rows_to_move], ignore_index=True)
-        df_kifi = pd.concat([df_kifi_header, df_kifi_updated], ignore_index=True)
+in column index A , starting from row 7 , in which cell it find the Keyword Summe written in bold  . 
+then mark that row as the end row . If it couldnt find the Summe written in bold in column index A anywhere then search from row 7 onwards where in which row in column index A we can find exact match with the sheet Name . For that extract the sheet Name and comapre it with the values starting from row 7. If it find any matching value with the sheet Name (case insensitive) then consider that row as the end row. If it couldnt find that also then the 
+next fall back logic is like , starting from row 7 onwards , check in which cell it finds no value . so if it finds a cell with no value in column index A , then consider the cell Above and fix that as the end row. 
 
-        date_format = '%d.%b.%y'
-        df_rlbooe.iloc[3:, 34] = pd.to_datetime(df_rlbooe.iloc[3:, 34], errors='coerce').dt.strftime(date_format)
-        df_rlbooe.iloc[3:, 40] = pd.to_datetime(df_rlbooe.iloc[3:, 40], errors='coerce').dt.strftime(date_format)
+After Fixing the end row then the next step is that , in row 3 or  row 4 , in which column  it identifies the Keyword Veränderung(case insensitive). After identifying that column or  column index , add two new columns to the left of that identified column or column index . the column Right of the identified column , identified column itself, and the two newly added two columns shouldnt be hidden.
+in the column or column index  , which is direct left of the identified column index , please write in row 3 Plan and in row 4 current year + 1 . For example in row 3 write Plan and in row 4 write 2026 if the current year is 2025. 
+Both should be written in bold and should be placed in the Center of the cell. 
+then in the current  Directory , take the file that starts with the Name Kostenstelle.
+Then next step is that we are Performing a v-look up and taking values from  the file whose  Name starts with Kostenstelle .
+for each row in the current working sheet starting from row 5 till the end row check if the value in column index AB Matches with the value in column index A in the Kostenstelle file, then copy the corresponding
+value from column index D to the corresponding row in  column or column index direct left to the identified column index.
+please note that the value in rows in column index AB are like 4557 775 67575, 47647648686,897598757959  in a single row. In other case row  value are like J7799 that means only one value.
+In the first case if the value in the row is like 4557 775 67575, 47647648686,897598757959  here take three values for lookup and if it found a match in column index A , then we will have three different values from column index d 
+in Kostenstelle file , add that together and write a single value in row in  current column index in the current sheet. then the next case if the lookup value is like J7799 , then search this value in column index A 
+of the kostenstelle file such that exact 1 to 1 match may be there, or else the value in column index A if ist like t666654/J7799 , even though ist not a 1 to 1 match , but still its a match , then also v.look up should function without any Problem. 
 
-        def copy_data_to_sections(source_df, target_df):
-            source_data = source_df.iloc[3:]
-            target_data = target_df.iloc[3:].reindex(range(len(source_data)), fill_value=None)
-            target_data.iloc[:, :source_data.shape[1]] = source_data.values
-            target_data = target_data.reindex(columns=range(max(66, target_data.shape[1])), fill_value=None)
-            target_data.iloc[:, 43:56] = source_data.iloc[:, :13].values
-            target_data.iloc[:, 57:59] = source_data.iloc[:, 13:15].values
-            target_data.iloc[:, 60:66] = source_data.iloc[:, 15:21].values
-            return pd.concat([target_df.iloc[:3], target_data], ignore_index=True)
 
-        def perform_vlookup_and_update(target_df, mapping_df):
-            lookup_dict = mapping_df.set_index(0)[2].to_dict()
-            target_df.iloc[3:, 52] = target_df.iloc[3:, 9].map(lookup_dict).fillna("kein Mapping Vorhanden")
-            return target_df
+then in the column index, which is not direct left of the identified column index , write IST in row 3 and write current year e in row 4. For example in row 3 write IST and in row 4 write 2025e if the current year is 2025. 
+Both should be written in bold and should be placed in the Center of the cell. 
+then in the current  Directory , take the file that starts with the Name Kostenstelle.
+Then next step is that we are Performing a v-look up and taking values from  the file whose  Name starts with Kostenstelle .
+for each row in the current working sheet starting from row 5 till the end row check if the value in column index AB Matches with the value in column index A in the Kostenstelle file, then copy the corresponding
+value from column index C to the corresponding row in  column index which is not direct left to the identified column index.
+please note that the value in rows in column index AB are like 4557 775 67575, 47647648686,897598757959  in some rows. In other rows the value are like J7799 .
+In the first case if the value in the row is like 4557 775 67575, 47647648686,897598757959  here take three values for lookup and if it found a match in column index A , then we will have three different values from column index C
+in Kostenstelle file , add that together and write a single value in row in  current column index in the current sheet. then the next case if the lookup value is like J7799 , then search this value in column index A 
+of the kostenstelle file such that exact 1 to 1 match may be there, or else the value in column index A if ist like t666654/J7799 , even though ist not a 1 to 1 match , but still ist a match , then also v.look up should function without any Problem. 
 
-        def check_and_update_bd_column(target_df, mapping_df):
-            lookup_dict = mapping_df.set_index(2)[3].to_dict()
-            target_df.iloc[3:, 55] = target_df.iloc[3:, 52].map(lookup_dict).fillna("kein Mapping Vorhanden")
-            return target_df
+if for both column Indices if there is no value in column index AB, then do Nothing.
 
-        def update_bn_column(target_df):
-            target_df.iloc[3:, 65] = target_df.iloc[3:].apply(lambda row: row[20] if row[55] != "kein Mapping Vorhanden" else "kein Mapping Vorhanden", axis=1)
-            return target_df
+then the next step is that , identify the column which has Keyword Plan in row 3 and the current year in row 4. this column shouldnt be hidden. 
+then the next step is that , identify the column which has Keyword IST in row 3 and the previous year in row 4 . for example IST in row 3 and 2024e or 2024 in row 4. this column shouldnt be hidden. 
+then the next step is that , identify the column which has Keyword IST in row 3 and the current year-2 in row 4 . for example IST in row 3 and 2023e or 2023 in row 4. this column shouldnt be hidden. 
+the column index A also shouldnt be hidden and all other other columns in the current sheet should be hidden.
 
-        def update_bb_column(target_df, specific_value):
-            target_df.iloc[3:, 53] = specific_value
-            return target_df
 
-        def update_be_column(target_df):
-            target_df.iloc[3:, 56] = target_df.iloc[3:, 57].apply(lambda x: "H" if x in [0, 0.00, 0.0000, "0,00"] else "S")
-            return target_df
 
-        def cut_and_paste_rows_by_values(source_df, target_df, values):
-            source_data = source_df.iloc[3:].copy()
-            target_data = target_df.iloc[3:].copy()
-            rows_to_move = source_data[source_data[0].isin(values)]
-            source_data = source_data[~source_data[0].isin(values)]
-            target_data = pd.concat([target_data, rows_to_move], ignore_index=True)
-            new_source_df = pd.concat([source_df.iloc[:3], source_data], ignore_index=True)
-            new_target_df = pd.concat([target_df.iloc[:3], target_data], ignore_index=True)
-            return new_source_df, new_target_df
 
-        def filter_rows_based_on_ag(df):
-            df.iloc[3:, 32] = pd.to_numeric(df.iloc[3:, 32], errors='coerce')
-            filtered_data = df.iloc[3:][df.iloc[3:, 32] == 5]
-            return pd.concat([df.iloc[:3], filtered_data], ignore_index=True)
 
-        def convert_to_european_format(value):
-            if isinstance(value, str):
-                value = value.replace('.', '').replace(',', '.')
-                try:
-                    return float(value)
-                except ValueError:
-                    return value
-            return value
 
-        def apply_european_formatting_to_columns(df, columns):
-            for column in columns:
-                df.iloc[3:, column] = df.iloc[3:, column].apply(convert_to_european_format)
-            return df
 
-        def filter_rows(df):
-            filtered_data = df.iloc[3:][(df.iloc[3:, 3] != 'SK') | (df.iloc[3:, 4] != '99')]
-            return pd.concat([df.iloc[:3], filtered_data], ignore_index=True)
 
-        # Process RLBOOE mit Teilkonzerne
-        df_rlbooe_mit_teilkonzerne = copy_data_to_sections(df_rlbooe, df_rlbooe_mit_teilkonzerne)
-        df_rlbooe_mit_teilkonzerne = perform_vlookup_and_update(df_rlbooe_mit_teilkonzerne, df_rlz_mapping)
-        df_rlbooe_mit_teilkonzerne = check_and_update_bd_column(df_rlbooe_mit_teilkonzerne, df_rlz_mapping)
-        df_rlbooe_mit_teilkonzerne = update_bn_column(df_rlbooe_mit_teilkonzerne)
-        df_rlbooe_mit_teilkonzerne = update_bb_column(df_rlbooe_mit_teilkonzerne, "B100")
-        df_rlbooe_mit_teilkonzerne = update_be_column(df_rlbooe_mit_teilkonzerne)
 
-        values_rlbooe = {'KIFI', 'ILG', 'ILI'}
-        df_rlbooe_mit_teilkonzerne, df_kifi_mit_teilkonzerne = cut_and_paste_rows_by_values(
-            df_rlbooe_mit_teilkonzerne, df_kifi_mit_teilkonzerne, values_rlbooe
-        )
 
-        df_rlbooe_mit_teilkonzerne = filter_rows_based_on_ag(df_rlbooe_mit_teilkonzerne)
-        df_rlbooe_mit_teilkonzerne = apply_european_formatting_to_columns(df_rlbooe_mit_teilkonzerne, [13, 14, 15, 57, 58, 60])
-        df_rlbooe_mit_teilkonzerne = filter_rows(df_rlbooe_mit_teilkonzerne)
 
-        # Process KIFI mit Teilkonzerne
-        df_kifi_mit_teilkonzerne = copy_data_to_sections(df_kifi, df_kifi_mit_teilkonzerne)
-        df_kifi_mit_teilkonzerne = perform_vlookup_and_update(df_kifi_mit_teilkonzerne, df_rlz_mapping)
-        df_kifi_mit_teilkonzerne = check_and_update_bd_column(df_kifi_mit_teilkonzerne, df_rlz_mapping)
-        df_kifi_mit_teilkonzerne = update_bn_column(df_kifi_mit_teilkonzerne)
-        df_kifi_mit_teilkonzerne = update_bb_column(df_kifi_mit_teilkonzerne, "B100")
-        df_kifi_mit_teilkonzerne = update_be_column(df_kifi_mit_teilkonzerne)
-        df_kifi_mit_teilkonzerne = filter_rows_based_on_ag(df_kifi_mit_teilkonzerne)
-        df_kifi_mit_teilkonzerne = apply_european_formatting_to_columns(df_kifi_mit_teilkonzerne, [13, 14, 15, 57, 58, 60])
-        df_kifi_mit_teilkonzerne = filter_rows(df_kifi_mit_teilkonzerne)
-
-        workbook = load_workbook(file_path)
-
-        def write_data_to_sheet(sheet_name, df):
-            print(f"Writing to sheet: {sheet_name}")
-            sheet = workbook[sheet_name]
-            for row_idx, row in enumerate(df.itertuples(index=False, name=None), start=4):
-                for col_idx, value in enumerate(row, start=1):
-                    cell = sheet.cell(row=row_idx, column=col_idx, value=value)
-                    if col_idx in [14, 15, 16, 58, 59, 61]:
-                        cell.number_format = '#,##0.00'
-
-        write_data_to_sheet('RLB mit Teilkonzerne', df_rlbooe_mit_teilkonzerne)
-        write_data_to_sheet('KIFI', df_kifi)
-        write_data_to_sheet('Kifi mit Teilkonzerne', df_kifi_mit_teilkonzerne)
-
-        def auto_adjust_column_width(sheet):
-            columns_to_adjust = ['M', 'N', 'O', 'P', 'U', 'V', 'BA', 'BF', 'BG', 'BN', 'BB', 'BD', 'BI']
-            for column_letter in columns_to_adjust:
-                max_length = 0
-                for cell in sheet[column_letter]:
-                    try:
-                        if len(str(cell.value)) > max_length:
-                            max_length = len(str(cell.value))
-                    except:
-                        pass
-                adjusted_width = (max_length + 2)
-                sheet.column_dimensions[column_letter].width = adjusted_width
-
-        workbook['RLB mit Teilkonzerne']['BO4'] = 'B01 B100 SK 08'
-        workbook['Kifi mit Teilkonzerne']['BO4'] = 'B01 B99 SK 08'
-
-        auto_adjust_column_width(workbook['RLB mit Teilkonzerne'])
-        auto_adjust_column_width(workbook['Kifi mit Teilkonzerne'])
-
-        # 🔻 Delete row 4 and 5 (Excel) from specific sheets
-        for sheet_name in ['KIFI', 'RLB mit Teilkonzerne', 'Kifi mit Teilkonzerne']:
-            if sheet_name in workbook.sheetnames:
-                sheet = workbook[sheet_name]
-                sheet.delete_rows(4, 2)
-
-        workbook.save(file_path)
-
-        root = tk.Tk()
-        root.withdraw()
-        messagebox.showinfo("Erfolgreich")
-        root.destroy()
-
-    except Exception as e:
-        print(f"An error occurred during execution: {e}")
