@@ -1,143 +1,144 @@
 import os
-import re
-from datetime import datetime
 from openpyxl import load_workbook
 from openpyxl.styles import Font, Alignment
-from openpyxl.utils import get_column_letter
+from datetime import datetime
 
-# SETTINGS
-CURRENT_YEAR = datetime.now().year
-NEXT_YEAR = CURRENT_YEAR + 1
-PREVIOUS_YEAR = CURRENT_YEAR - 1
-TWO_YEARS_AGO = CURRENT_YEAR - 2
+def is_yellow_or_green(cell):
+    fill = cell.fill.start_color.rgb
+    return fill and (fill.startswith('FFFFFF00') or fill.startswith('FF00FF00') or fill.startswith('FFFFFF99') or fill.startswith('FFFFE135'))
 
-def is_yellow_or_green(rgb):
-    if rgb is None:
-        return False
-    rgb = rgb.replace("FF", "")  # Remove alpha
-    # Check for yellows and greens (very basic ranges)
-    return (
-        rgb.startswith("FF") or rgb.startswith("FFFF") or rgb.startswith("FFFF00") or  # Yellows
-        rgb.startswith("00FF00") or rgb.startswith("008000") or rgb.startswith("ADFF2F")  # Greens
-    )
+def get_kostenstelle_data(kosten_file_path):
+    wb = load_workbook(kosten_file_path, data_only=True)
+    ws = wb.active
+    lookup_dict_c = {}
+    lookup_dict_d = {}
+    for row in ws.iter_rows(min_row=2, values_only=True):  # assuming header row
+        key = str(row[0]).strip() if row[0] else ''
+        if key:
+            lookup_dict_c[key] = row[2]  # Column C
+            lookup_dict_d[key] = row[3]  # Column D
+    return lookup_dict_c, lookup_dict_d
 
-def find_end_row(sheet, sheet_name):
-    for row in range(7, sheet.max_row + 1):
-        cell = sheet[f"A{row}"]
-        if cell.value and isinstance(cell.value, str) and "summe" in cell.value.lower() and cell.font and cell.font.bold:
-            return row
-    for row in range(7, sheet.max_row + 1):
-        if str(sheet[f"A{row}"].value).strip().lower() == sheet_name.lower():
-            return row
-    for row in range(7, sheet.max_row + 1):
-        if sheet[f"A{row}"].value is None:
-            return row - 1
-    return sheet.max_row
+def fuzzy_match(key, lookup_keys):
+    for ref_key in lookup_keys:
+        if key == ref_key or key in ref_key or ref_key in key:
+            return ref_key
+    return None
 
-def fuzzy_lookup(values, kostenstelle_df, column):
-    total = 0
-    for val in values:
-        matched = kostenstelle_df[kostenstelle_df['A'].str.contains(val, na=False, case=False)]
-        if not matched.empty:
-            total += matched.iloc[0][column]
-    return total
-
-def get_kostenstelle_df(kosten_file):
-    df = pd.read_excel(kosten_file, header=None)
-    df.columns = ['A', 'B', 'C', 'D']
-    df['A'] = df['A'].astype(str)
-    return df
-
-def main():
-    directory = os.getcwd()
-    files = [f for f in os.listdir(directory) if f.endswith(".xlsx") and not f.startswith("~$")]
-    kosten_file = next((f for f in files if f.startswith("Kostenstelle")), None)
-
-    if not kosten_file:
-        print("Kostenstelle file not found.")
-        return
-
-    kosten_path = os.path.join(directory, kosten_file)
-    kosten_df = get_kostenstelle_df(kosten_path)
-
-    for file in files:
-        if file.startswith("Kostenstelle"):
+def process_workbook(file_path, kosten_data_c, kosten_data_d, current_year):
+    wb = load_workbook(file_path)
+    for sheet in wb.worksheets:
+        cell = sheet['A1']
+        if not is_yellow_or_green(cell):
             continue
 
-        filepath = os.path.join(directory, file)
-        wb = load_workbook(filepath)
-        for sheetname in wb.sheetnames:
-            sheet = wb[sheetname]
-
-            sheet_name_cell = sheet["A1"]
-            if not is_yellow_or_green(sheet_name_cell.fill.start_color.rgb):
-                continue
-
-            end_row = find_end_row(sheet, sheetname)
-            var_col = None
-            for col in range(1, sheet.max_column + 1):
-                val = str(sheet.cell(row=3, column=col).value).lower()
-                if "veränderung" in val:
-                    var_col = col
+        sheet_name = sheet.title.strip().lower()
+        end_row = None
+        for row in range(7, sheet.max_row + 1):
+            cell = sheet.cell(row=row, column=1)
+            if cell.value and str(cell.value).strip().lower() == 'summe' and cell.font.bold:
+                end_row = row
+                break
+        if not end_row:
+            for row in range(7, sheet.max_row + 1):
+                if str(sheet.cell(row=row, column=1).value).strip().lower() == sheet_name:
+                    end_row = row
                     break
-            if not var_col:
+        if not end_row:
+            for row in range(7, sheet.max_row + 1):
+                if sheet.cell(row=row, column=1).value is None:
+                    end_row = row - 1
+                    break
+        if not end_row:
+            end_row = sheet.max_row
+
+        # Step 2: Find “Veränderung”
+        ver_col = None
+        for col in range(1, sheet.max_column + 1):
+            if str(sheet.cell(row=3, column=col).value).strip().lower() == 'veränderung':
+                ver_col = col
+                break
+            if str(sheet.cell(row=4, column=col).value).strip().lower() == 'veränderung':
+                ver_col = col
+                break
+        if not ver_col:
+            continue
+
+        sheet.insert_cols(ver_col)
+        sheet.insert_cols(ver_col)
+
+        # Header formatting
+        plan_col = ver_col
+        ist_col = ver_col + 1
+        plan_cell = sheet.cell(row=3, column=plan_col)
+        ist_cell = sheet.cell(row=3, column=ist_col)
+        plan_cell.value = 'Plan'
+        plan_cell.font = Font(bold=True)
+        plan_cell.alignment = Alignment(horizontal='center')
+
+        ist_cell.value = 'IST'
+        ist_cell.font = Font(bold=True)
+        ist_cell.alignment = Alignment(horizontal='center')
+
+        sheet.cell(row=4, column=plan_col).value = str(current_year + 1)
+        sheet.cell(row=4, column=plan_col).font = Font(bold=True)
+        sheet.cell(row=4, column=plan_col).alignment = Alignment(horizontal='center')
+
+        sheet.cell(row=4, column=ist_col).value = str(current_year) + 'e'
+        sheet.cell(row=4, column=ist_col).font = Font(bold=True)
+        sheet.cell(row=4, column=ist_col).alignment = Alignment(horizontal='center')
+
+        # Step 3: VLOOKUP logic
+        for row in range(5, end_row + 1):
+            ab_val = sheet.cell(row=row, column=28).value  # AB is col 28
+            if not ab_val:
                 continue
+            parts = [part.strip() for part in str(ab_val).replace(',', ' ').split()]
+            sum_c = sum_d = 0
+            for part in parts:
+                match_key = fuzzy_match(part, kosten_data_c.keys())
+                if match_key:
+                    sum_c += kosten_data_c[match_key] if kosten_data_c[match_key] else 0
+                    sum_d += kosten_data_d[match_key] if kosten_data_d[match_key] else 0
+            sheet.cell(row=row, column=plan_col).value = sum_d
+            sheet.cell(row=row, column=ist_col).value = sum_c
 
-            # Insert two columns to the left
-            sheet.insert_cols(var_col, amount=2)
-            left_col1 = var_col
-            left_col2 = var_col + 1
-            center_align = Alignment(horizontal='center')
+        # Step 4: Hide unnecessary columns
+        keep_cols = set([1, plan_col, ist_col, ver_col])
+        for col in range(1, sheet.max_column + 1):
+            hdr1 = str(sheet.cell(row=3, column=col).value).strip().lower() if sheet.cell(row=3, column=col).value else ''
+            hdr2 = str(sheet.cell(row=4, column=col).value).strip().lower() if sheet.cell(row=4, column=col).value else ''
+            if (
+                (hdr1 == 'ist' and (hdr2 == str(current_year) or hdr2 == f'{current_year}e' or
+                                    hdr2 == str(current_year - 1) or hdr2 == f'{current_year - 1}e'))
+                or col in keep_cols
+            ):
+                sheet.column_dimensions[sheet.cell(row=1, column=col).column_letter].hidden = False
+            else:
+                sheet.column_dimensions[sheet.cell(row=1, column=col).column_letter].hidden = True
 
-            # Write "Plan" and next year
-            sheet.cell(row=3, column=left_col1).value = "Plan"
-            sheet.cell(row=3, column=left_col1).font = Font(bold=True)
-            sheet.cell(row=3, column=left_col1).alignment = center_align
-            sheet.cell(row=4, column=left_col1).value = NEXT_YEAR
-            sheet.cell(row=4, column=left_col1).font = Font(bold=True)
-            sheet.cell(row=4, column=left_col1).alignment = center_align
+    wb.save(file_path)
 
-            # Write "IST" and current year + "e"
-            sheet.cell(row=3, column=left_col2).value = "IST"
-            sheet.cell(row=3, column=left_col2).font = Font(bold=True)
-            sheet.cell(row=3, column=left_col2).alignment = center_align
-            sheet.cell(row=4, column=left_col2).value = f"{CURRENT_YEAR}e"
-            sheet.cell(row=4, column=left_col2).font = Font(bold=True)
-            sheet.cell(row=4, column=left_col2).alignment = center_align
+def main():
+    current_year = datetime.now().year
+    directory = '.'  # current working directory
+    kosten_file = None
+    for file in os.listdir(directory):
+        if file.lower().startswith('kostenstelle') and file.endswith('.xlsx'):
+            kosten_file = os.path.join(directory, file)
+            break
 
-            for row in range(5, end_row + 1):
-                ab_val = sheet.cell(row=row, column=28).value  # AB column is index 28
-                if not ab_val:
-                    continue
-                ids = re.findall(r'\w+', str(ab_val))
+    if not kosten_file:
+        print("Kostenstelle file not found!")
+        return
 
-                # Lookup for PLAN (left_col1) from D column in Kostenstelle
-                val_d = fuzzy_lookup(ids, kosten_df, "D")
-                sheet.cell(row=row, column=left_col1).value = val_d
+    kosten_data_c, kosten_data_d = get_kostenstelle_data(kosten_file)
 
-                # Lookup for IST (left_col2) from C column in Kostenstelle
-                val_c = fuzzy_lookup(ids, kosten_df, "C")
-                sheet.cell(row=row, column=left_col2).value = val_c
-
-            keep_cols = {1, left_col1, left_col2, var_col + 2}  # var_col+2 because two were inserted before
-
-            # Unhide Plan+NextYear, IST+CurrentYear, IST+PreviousYear, IST+2YearsAgo
-            for col in range(1, sheet.max_column + 1):
-                r3 = str(sheet.cell(row=3, column=col).value).lower()
-                r4 = str(sheet.cell(row=4, column=col).value).lower()
-                if ("plan" in r3 and str(NEXT_YEAR) in r4) or \
-                   ("ist" in r3 and str(CURRENT_YEAR) in r4) or \
-                   ("ist" in r3 and str(PREVIOUS_YEAR) in r4) or \
-                   ("ist" in r3 and str(TWO_YEARS_AGO) in r4):
-                    keep_cols.add(col)
-
-            # Hide other columns
-            for col in range(1, sheet.max_column + 1):
-                if col not in keep_cols:
-                    sheet.column_dimensions[get_column_letter(col)].hidden = True
-
-        wb.save(filepath)
-        print(f"Processed: {file}")
+    for file in os.listdir(directory):
+        if file.lower().startswith('kostenstelle') or not file.endswith('.xlsx'):
+            continue
+        file_path = os.path.join(directory, file)
+        process_workbook(file_path, kosten_data_c, kosten_data_d, current_year)
 
 if __name__ == "__main__":
     main()
