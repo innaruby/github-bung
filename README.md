@@ -1,29 +1,11 @@
-def get_sheet_tab_color(file_path, sheet_name):
-    app = xw.App(visible=False)
-    wb = app.books.open(file_path)
-    try:
-        sht = wb.sheets[sheet_name]
-        color = sht.api.Tab.Color  # RGB integer or None
-        print(f"Sheet '{sheet_name}' tab color: {color}")
-    finally:
-        wb.close()
-        app.quit()
-
-    if color is None:
-        return False
-
-    # If color is a single RGB int, extract R, G, B
-    try:
-        b = color & 255
-        g = (color >> 8) & 255
-        r = (color >> 16) & 255
-        print(f"Extracted RGB: R={r}, G={g}, B={b}")
-    except Exception as e:
-        print(f"Error decoding tab color: {e}")
-        return False
-
-    # Define green/yellow logic
-    is_yellow = r > 200 and g > 200 and b < 150
-    is_green = g > 150 and r < 200 and b < 150
-
-    return is_yellow or is_green
+def find_column(ws, keyword, row=3):
+    keyword = keyword.strip().lower()
+    for col_idx in range(1, ws.max_column + 1):
+        cell_value = ws.cell(row=row, column=col_idx).value
+        if cell_value:
+            cell_text = str(cell_value).strip().lower()
+            if keyword in cell_text:
+                print(f"Found '{keyword}' in column {col_idx} with header '{cell_value}'")
+                return col_idx
+    print(f"Keyword '{keyword}' not found in row {row}")
+    return None
