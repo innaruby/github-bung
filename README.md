@@ -1,58 +1,143 @@
-i Have an Excel file . i Need to apply python code for the whole process. 
-In the Excel file , i want to Hide some columns , i want to apply Formula in some columns starting from a particular row and ending at a particular row . 
+import os
+import re
+from datetime import datetime
+from openpyxl import load_workbook
+from openpyxl.styles import Font, Alignment
+from openpyxl.utils import get_column_letter
 
-The exact process is like this , 
-open all the Excel files in the current given Directory one after the other except the file starting with Kostenstelle because that file is used for v-lookup Purpose only. 
-In the Excel file which is opened,
+# SETTINGS
+CURRENT_YEAR = datetime.now().year
+NEXT_YEAR = CURRENT_YEAR + 1
+PREVIOUS_YEAR = CURRENT_YEAR - 1
+TWO_YEARS_AGO = CURRENT_YEAR - 2
 
-first identify whether the sheet Name is written in green or yellow . 
-it can be any green or any type of yellow. 
-So if the program identifies the place where we write the sheet Name is filled with yellow , then do the following process. 
+def is_yellow_or_green(rgb):
+    if rgb is None:
+        return False
+    rgb = rgb.replace("FF", "")  # Remove alpha
+    # Check for yellows and greens (very basic ranges)
+    return (
+        rgb.startswith("FF") or rgb.startswith("FFFF") or rgb.startswith("FFFF00") or  # Yellows
+        rgb.startswith("00FF00") or rgb.startswith("008000") or rgb.startswith("ADFF2F")  # Greens
+    )
 
-at first identify the end row , the end row is identified by the following logic , 
+def find_end_row(sheet, sheet_name):
+    for row in range(7, sheet.max_row + 1):
+        cell = sheet[f"A{row}"]
+        if cell.value and isinstance(cell.value, str) and "summe" in cell.value.lower() and cell.font and cell.font.bold:
+            return row
+    for row in range(7, sheet.max_row + 1):
+        if str(sheet[f"A{row}"].value).strip().lower() == sheet_name.lower():
+            return row
+    for row in range(7, sheet.max_row + 1):
+        if sheet[f"A{row}"].value is None:
+            return row - 1
+    return sheet.max_row
 
-in column index A , starting from row 7 , in which cell it find the Keyword Summe written in bold  . 
-then mark that row as the end row . If it couldnt find the Summe written in bold in column index A anywhere then search from row 7 onwards where in which row in column index A we can find exact match with the sheet Name . For that extract the sheet Name and comapre it with the values starting from row 7. If it find any matching value with the sheet Name (case insensitive) then consider that row as the end row. If it couldnt find that also then the 
-next fall back logic is like , starting from row 7 onwards , check in which cell it finds no value . so if it finds a cell with no value in column index A , then consider the cell Above and fix that as the end row. 
+def fuzzy_lookup(values, kostenstelle_df, column):
+    total = 0
+    for val in values:
+        matched = kostenstelle_df[kostenstelle_df['A'].str.contains(val, na=False, case=False)]
+        if not matched.empty:
+            total += matched.iloc[0][column]
+    return total
 
-After Fixing the end row then the next step is that , in row 3 or  row 4 , in which column  it identifies the Keyword Veränderung(case insensitive). After identifying that column or  column index , add two new columns to the left of that identified column or column index . the column Right of the identified column , identified column itself, and the two newly added two columns shouldnt be hidden.
-in the column or column index  , which is direct left of the identified column index , please write in row 3 Plan and in row 4 current year + 1 . For example in row 3 write Plan and in row 4 write 2026 if the current year is 2025. 
-Both should be written in bold and should be placed in the Center of the cell. 
-then in the current  Directory , take the file that starts with the Name Kostenstelle.
-Then next step is that we are Performing a v-look up and taking values from  the file whose  Name starts with Kostenstelle .
-for each row in the current working sheet starting from row 5 till the end row check if the value in column index AB Matches with the value in column index A in the Kostenstelle file, then copy the corresponding
-value from column index D to the corresponding row in  column or column index direct left to the identified column index.
-please note that the value in rows in column index AB are like 4557 775 67575, 47647648686,897598757959  in a single row. In other case row  value are like J7799 that means only one value.
-In the first case if the value in the row is like 4557 775 67575, 47647648686,897598757959  here take three values for lookup and if it found a match in column index A , then we will have three different values from column index d 
-in Kostenstelle file , add that together and write a single value in row in  current column index in the current sheet. then the next case if the lookup value is like J7799 , then search this value in column index A 
-of the kostenstelle file such that exact 1 to 1 match may be there, or else the value in column index A if ist like t666654/J7799 , even though ist not a 1 to 1 match , but still its a match , then also v.look up should function without any Problem. 
+def get_kostenstelle_df(kosten_file):
+    df = pd.read_excel(kosten_file, header=None)
+    df.columns = ['A', 'B', 'C', 'D']
+    df['A'] = df['A'].astype(str)
+    return df
 
+def main():
+    directory = os.getcwd()
+    files = [f for f in os.listdir(directory) if f.endswith(".xlsx") and not f.startswith("~$")]
+    kosten_file = next((f for f in files if f.startswith("Kostenstelle")), None)
 
-then in the column index, which is not direct left of the identified column index , write IST in row 3 and write current year e in row 4. For example in row 3 write IST and in row 4 write 2025e if the current year is 2025. 
-Both should be written in bold and should be placed in the Center of the cell. 
-then in the current  Directory , take the file that starts with the Name Kostenstelle.
-Then next step is that we are Performing a v-look up and taking values from  the file whose  Name starts with Kostenstelle .
-for each row in the current working sheet starting from row 5 till the end row check if the value in column index AB Matches with the value in column index A in the Kostenstelle file, then copy the corresponding
-value from column index C to the corresponding row in  column index which is not direct left to the identified column index.
-please note that the value in rows in column index AB are like 4557 775 67575, 47647648686,897598757959  in some rows. In other rows the value are like J7799 .
-In the first case if the value in the row is like 4557 775 67575, 47647648686,897598757959  here take three values for lookup and if it found a match in column index A , then we will have three different values from column index C
-in Kostenstelle file , add that together and write a single value in row in  current column index in the current sheet. then the next case if the lookup value is like J7799 , then search this value in column index A 
-of the kostenstelle file such that exact 1 to 1 match may be there, or else the value in column index A if ist like t666654/J7799 , even though ist not a 1 to 1 match , but still ist a match , then also v.look up should function without any Problem. 
+    if not kosten_file:
+        print("Kostenstelle file not found.")
+        return
 
-if for both column Indices if there is no value in column index AB, then do Nothing.
+    kosten_path = os.path.join(directory, kosten_file)
+    kosten_df = get_kostenstelle_df(kosten_path)
 
-then the next step is that , identify the column which has Keyword Plan in row 3 and the current year in row 4. this column shouldnt be hidden. 
-then the next step is that , identify the column which has Keyword IST in row 3 and the previous year in row 4 . for example IST in row 3 and 2024e or 2024 in row 4. this column shouldnt be hidden. 
-then the next step is that , identify the column which has Keyword IST in row 3 and the current year-2 in row 4 . for example IST in row 3 and 2023e or 2023 in row 4. this column shouldnt be hidden. 
-the column index A also shouldnt be hidden and all other other columns in the current sheet should be hidden.
+    for file in files:
+        if file.startswith("Kostenstelle"):
+            continue
 
+        filepath = os.path.join(directory, file)
+        wb = load_workbook(filepath)
+        for sheetname in wb.sheetnames:
+            sheet = wb[sheetname]
 
+            sheet_name_cell = sheet["A1"]
+            if not is_yellow_or_green(sheet_name_cell.fill.start_color.rgb):
+                continue
 
+            end_row = find_end_row(sheet, sheetname)
+            var_col = None
+            for col in range(1, sheet.max_column + 1):
+                val = str(sheet.cell(row=3, column=col).value).lower()
+                if "veränderung" in val:
+                    var_col = col
+                    break
+            if not var_col:
+                continue
 
+            # Insert two columns to the left
+            sheet.insert_cols(var_col, amount=2)
+            left_col1 = var_col
+            left_col2 = var_col + 1
+            center_align = Alignment(horizontal='center')
 
+            # Write "Plan" and next year
+            sheet.cell(row=3, column=left_col1).value = "Plan"
+            sheet.cell(row=3, column=left_col1).font = Font(bold=True)
+            sheet.cell(row=3, column=left_col1).alignment = center_align
+            sheet.cell(row=4, column=left_col1).value = NEXT_YEAR
+            sheet.cell(row=4, column=left_col1).font = Font(bold=True)
+            sheet.cell(row=4, column=left_col1).alignment = center_align
 
+            # Write "IST" and current year + "e"
+            sheet.cell(row=3, column=left_col2).value = "IST"
+            sheet.cell(row=3, column=left_col2).font = Font(bold=True)
+            sheet.cell(row=3, column=left_col2).alignment = center_align
+            sheet.cell(row=4, column=left_col2).value = f"{CURRENT_YEAR}e"
+            sheet.cell(row=4, column=left_col2).font = Font(bold=True)
+            sheet.cell(row=4, column=left_col2).alignment = center_align
 
+            for row in range(5, end_row + 1):
+                ab_val = sheet.cell(row=row, column=28).value  # AB column is index 28
+                if not ab_val:
+                    continue
+                ids = re.findall(r'\w+', str(ab_val))
 
+                # Lookup for PLAN (left_col1) from D column in Kostenstelle
+                val_d = fuzzy_lookup(ids, kosten_df, "D")
+                sheet.cell(row=row, column=left_col1).value = val_d
 
+                # Lookup for IST (left_col2) from C column in Kostenstelle
+                val_c = fuzzy_lookup(ids, kosten_df, "C")
+                sheet.cell(row=row, column=left_col2).value = val_c
 
+            keep_cols = {1, left_col1, left_col2, var_col + 2}  # var_col+2 because two were inserted before
 
+            # Unhide Plan+NextYear, IST+CurrentYear, IST+PreviousYear, IST+2YearsAgo
+            for col in range(1, sheet.max_column + 1):
+                r3 = str(sheet.cell(row=3, column=col).value).lower()
+                r4 = str(sheet.cell(row=4, column=col).value).lower()
+                if ("plan" in r3 and str(NEXT_YEAR) in r4) or \
+                   ("ist" in r3 and str(CURRENT_YEAR) in r4) or \
+                   ("ist" in r3 and str(PREVIOUS_YEAR) in r4) or \
+                   ("ist" in r3 and str(TWO_YEARS_AGO) in r4):
+                    keep_cols.add(col)
+
+            # Hide other columns
+            for col in range(1, sheet.max_column + 1):
+                if col not in keep_cols:
+                    sheet.column_dimensions[get_column_letter(col)].hidden = True
+
+        wb.save(filepath)
+        print(f"Processed: {file}")
+
+if __name__ == "__main__":
+    main()
