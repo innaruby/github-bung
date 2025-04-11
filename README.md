@@ -19,7 +19,7 @@ def browse_file(entry):
         entry.insert(0, path)
 
 
-def get_column_a_colors(file_path, sheet_name='Sheet1'):
+def get_column_a_colors(file_path, sheet_name='Kostenstellen'):
     wb = openpyxl.load_workbook(file_path, data_only=False)
     sheet = wb[sheet_name]
 
@@ -189,7 +189,7 @@ def process_files(input_path, kostenstelle_path):
         m_cell = copy_ws[f"M{r}"]
         try:
             if isinstance(m_cell.value, (int, float)):
-                m_cell.fill = green_fill
+                m_cell.fill = red_fill
         except:
             continue
 
