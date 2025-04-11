@@ -7,7 +7,7 @@ from openpyxl.styles import PatternFill
 # Acceptable green fill variations
 GREEN_HEX_CODES = {"FF90EE90", "FF92D050", "FF00FF00"}
 
-# Define color fills for column L
+# Define color fills
 red_fill = PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid")
 green_fill = PatternFill(start_color="FF90EE90", end_color="FF90EE90", fill_type="solid")
 
@@ -68,7 +68,14 @@ def process_column_m(row_num, copy_ws, kostenstelle_data, column_a_colors, green
     k_data = kostenstelle_data[h_val]
     f_val = k_data.get("F")
     i_val = k_data.get("I")
-    print(f"[DEBUG] F = {f_val}, I = {i_val}")
+    b_val = k_data.get("E")
+    print(f"[DEBUG] F = {f_val}, I = {i_val}, B = {b_val}")
+
+    vertriebsberichte = {
+        "Vertriebsbericht Nürnberg", "Vertriebsbericht Regensburg", "Vertriebsbericht Sondervolumen Markt SüdD",
+        "Vertriebsbericht Würzburg", "Vertriebsbericht München", "Vertriebsbericht Ulm",
+        "Vertriebsbericht Heilbronn", "Vertriebsbericht Stuttgart", "Vertriebsbericht Augsburg"
+    }
 
     if isinstance(f_val, str):
         f_val_lower = f_val.lower()
@@ -78,13 +85,17 @@ def process_column_m(row_num, copy_ws, kostenstelle_data, column_a_colors, green
         elif f_val_lower == "inaktiv":
             fill_color = column_a_colors.get(i_val)
             print(f"[DEBUG] Fill color for A={i_val}: {fill_color}")
+
             if i_val in green_i_lookup:
                 matched_i = green_i_lookup[i_val]
                 copy_ws[f"M{row_num}"].value = matched_i
                 print(f"[DEBUG] Green A match found → Writing matched I='{matched_i}' to M{row_num}")
+            elif b_val in vertriebsberichte:
+                copy_ws[f"M{row_num}"].value = i_val
+                print(f"[DEBUG] B is Vertriebsbericht match → Writing I='{i_val}' to M{row_num}")
             else:
                 copy_ws[f"M{row_num}"].value = i_val
-                print(f"[DEBUG] No green A match → Writing I='{i_val}' to M{row_num}")
+                print(f"[DEBUG] No green A match or B override → Writing I='{i_val}' to M{row_num}")
     else:
         print(f"[DEBUG] Invalid or missing F for row {row_num}")
 
@@ -137,14 +148,15 @@ def process_files(input_path, kostenstelle_path):
                 copy_ws[f"G{r}"].value = "U0"
             elif c_val.startswith("704") and b_val == 1001:
                 copy_ws[f"G{r}"].value = "A0"
-            elif c_val.startswith(("704")) and b_val == 1002:
+            elif c_val.startswith("704") and b_val == 1002:
                 copy_ws[f"G{r}"].value = "D0"
 
             d_val = copy_ws[f"D{r}"].value
             if d_val:
                 length = len(str(d_val).replace(" ", ""))
                 copy_ws[f"L{r}"].value = length
-                copy_ws[f"L{r}"].fill = red_fill if length >= 50 else green_fill
+                if length >= 50:
+                    copy_ws[f"L{r}"].fill = red_fill  # Only fill red if >= 50
 
             g_val = copy_ws[f"G{r}"].value
             if g_val in ["A0", "D0"]:
@@ -153,15 +165,16 @@ def process_files(input_path, kostenstelle_path):
                     copy_ws[f"K{r}"].value = int("100000" + str(h_cell_val)[-3:])
                     copy_ws[f"H{r}"].value = None
 
-    copy_wb.save(copy_path)
     input_wb.close()
+    copy_wb.save(copy_path)
     copy_wb.close()
     kostenstelle_wb.close()
 
+    # Phase 2: Process column M
     print("\n[DEBUG] Reading fill colors from column A...")
     column_a_colors, green_i_lookup = get_column_a_colors(kostenstelle_path)
 
-    copy_wb = openpyxl.load_workbook(copy_path, data_only=True)
+    copy_wb = openpyxl.load_workbook(copy_path)
     copy_ws = copy_wb.active
     kostenstelle_wb = openpyxl.load_workbook(kostenstelle_path, data_only=True)
     kostenstelle_ws = kostenstelle_wb.active
@@ -177,21 +190,27 @@ def process_files(input_path, kostenstelle_path):
 
     for r in range(16, end_row + 1):
         process_column_m(r, copy_ws, kostenstelle_data, column_a_colors, green_i_lookup)
-    #new steps addition 
-    
+
+    # Add final values and sums
     sum_e = sum(copy_ws[f"E{r}"].value for r in range(16, end_row + 1) if copy_ws[f"E{r}"].value is not None)
     sum_f = sum(copy_ws[f"F{r}"].value for r in range(16, end_row + 1) if copy_ws[f"F{r}"].value is not None)
 
-    # Write sums to cells E12 and F12
     copy_ws.cell(row=12, column=5).value = sum_e
     copy_ws.cell(row=12, column=6).value = sum_f
+    copy_ws.cell(row=12, column=4).value = '=E12-F12'
 
-    
-    copy_ws.cell(row=12, column=4).value = '=E12-F12'  
-    
     copy_ws.cell(row=15, column=13).value = "Kontrolle alte KST"
     copy_ws.cell(row=15, column=12).value = "Kontrolle Länge Positionstext"
 
+    # Apply fill to M if value is numeric
+    for r in range(16, end_row + 1):
+        m_cell = copy_ws[f"M{r}"]
+        try:
+            if isinstance(m_cell.value, (int, float)):
+                m_cell.fill = green_fill
+                print(f"[DEBUG] M{r} is numeric → Applied green fill")
+        except:
+            continue
 
     copy_wb.save(copy_path)
     copy_wb.close()
@@ -228,19 +247,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-to this code i want to add some modification such that ,  during checking the value whether its in the green coloured cells or not , here an additional check also need to be done . IF the value in columnn index I in kostenstelle file is not in green coloured cell then check whether it whether for that value in column index A , select the corresponding value in column index B . If the value in column index B is having one of the 
-following values Vertriebsbericht Nürnberg
-Vertriebsbericht Regensburg
-Vertriebsbericht Sondervolumen Markt SüdD
-Vertriebsbericht Würzburg
-Vertriebsbericht München
-Vertriebsbericht Ulm 
-
-Vertriebsbericht Heilbronn
-
-Vertriebsbericht Stuttgart
-
-Vertriebsbericht Augsburg
-then please take the value from column index I of this row otherwise the original value or the fall back logic .
-Additionally in copy file , in columnn index L, no need to fill the colour if the value is less than fifty. Only fill with red if the value is greater than or equal to 50.
-in the copy file as the final step please colour the cell in column index M for the defined range if the value is a numerical value . 
