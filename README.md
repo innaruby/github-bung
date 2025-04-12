@@ -93,9 +93,13 @@ in the current column , which is direct left of the identified column ,for each 
 value from column index D to the corresponding row in  column or column index direct left to the identified column index.
 please note that the value in rows in column index AB are like 4557 775 67575, 47647648686,897598757959  in a single row. In other case row  value are like J7799 ,SS336 etc  and in other case the values are like
  7077510000 + 7077515000 vom Knoten G51 and in some other case the values are like S446 + S447 + S443 - 70 787 50 400 - 70 787 50 500.
-In the first case if the value in the row is like 4557 775 67575, 47647648686,897598757959  here take three values for lookup and if it found a match in column index A , then we will have three different values from column index d 
-in Kostenstelle file , add that together and write a single value in row in  current column index in the current sheet. then the next case if the lookup value is like J7799 , then search this value in column index A 
-of the kostenstelle file such that exact 1 to 1 match may be there, or else the value in column index A if ist like t666654/J7799 , even though ist not a 1 to 1 match , but still its a match , then also v.look up should function without any Problem. 
+In the first case if the value in the row is like 4557 775 67575, 47647648686,897598757959  here take three values for lookup  after deleting the void or empty spaces between the numbers and if it found a match in column index A , then we will have three different values from column index d 
+in Kostenstelle file , add that together and write a single value in row in  current column index in the current sheet. then the next case if the lookup value is like J7799 ,SS336 then search this value in column index A 
+of the kostenstelle file such that exact 1 to 1 match may be there, or else the value in column index A if ist like t666654/J7799 , even though ist not a 1 to 1 match , but still its a match , then also v.look up should function without any Problem. That means the look up value is present is the important in when we look that value in column index A , that value can contain other elements but if the lookup value is present in that row even with some other value should also be okay. in the next case if the look up value in the column which is direct left to the identified column is like  7077510000 + 7077515000 vom Knoten G51 , then separate this portion from the numbers and take the numbers separately and perform the look up. After gettting the values separately for the two numbers then please add the two values and then write to corresponding row in current column . In the next case if the 
+values are like S446 + S447 + S443 - 70 787 50 400 - 70 787 50 500 that means each of the 5 values should be treated separately for the vlook up and after performing the vlook up perform the operation in the cell 
+like here in this case add the 3 values then subract the final two values from the sum and write a single value to the corresponding in the current column. 
+
+
 
 
 then in the column index, which is not direct left of the identified column index , write IST in row 3 and write current year e in row 4. For example in row 3 write IST and in row 4 write 2025e if the current year is 2025. 
