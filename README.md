@@ -1,45 +1,24 @@
-i Have an Excel file . i Need to apply python code for the whole process. 
-In the Excel file , i want to Hide some columns , i want to apply Formula in some columns starting from a particular row and ending at a particular row . 
-
-The exact process is like this , 
-open all the Excel files in the current given Directory one after the other except the file starting with Kostenstelle because that file is used for v-lookup Purpose only. 
-In the Excel file which is opened,
-
-first identify whether the sheet Name is written in green or yellow . 
-it can be any green or any type of yellow. please use the following code for this purpose 
-
-
+    the following code after execution i found  a problem . That problem can be explained through an example . In the excel file in the sheet which has yellow colour tab , it has the keyword Veränderung in row 3 but from both the columns V and W . From row 4 onwards there are no more merged cells in V and W. After processing with this python file , i found that the data in the column index V and W only shifted towards right when adding the two new columns it should not happend. The structure of the cells also should be taken along when shifting , now that merged cell is lost where the Veränderung keyword is present and that merged cell now belong to the newly added two columns which should not happend. Please modify the code                                                                                                                                                                                                                                                             import os 
+import re
+from datetime import datetime
 import openpyxl
-from tkinter import filedialog, Tk
+from openpyxl.styles import Font, Alignment
+from openpyxl.utils import get_column_letter
+from tkinter import Tk, filedialog
 
-# Common Excel tab colors and their friendly names
 COLOR_MAP = {
-    '#FFFFFF': 'White',
-    '#FF0000': 'Red',
-    '#00B050': 'Green',
-    '#92D050': 'Light Green',
-    '#0070C0': 'Blue',
-    '#00B0F0': 'Light Blue',
-    '#FFFF00': 'Yellow',
-    '#FFC000': 'Orange',
-    '#7030A0': 'Purple',
-    '#D9D9D9': 'Gray',
-    '#000000': 'Black',
-    '#ED7D31': 'Dark Orange',
-    '#A9D08E': 'Pale Green',
-    '#F4B084': 'Peach',
-    '#FFD966': 'Pale Yellow'
+    '#FFFFFF': 'White', '#FF0000': 'Red', '#00B050': 'Green', '#92D050': 'Light Green',
+    '#0070C0': 'Blue', '#00B0F0': 'Light Blue', '#FFFF00': 'Yellow', '#FFC000': 'Orange',
+    '#7030A0': 'Purple', '#D9D9D9': 'Gray', '#000000': 'Black', '#ED7D31': 'Dark Orange',
+    '#A9D08E': 'Pale Green', '#F4B084': 'Peach', '#FFD966': 'Pale Yellow'
 }
 
 def rgb_to_hex_name(rgb):
-    """Convert openpyxl RGB color to HEX and friendly name."""
     if rgb is None:
         return "No Color"
-
     if rgb.type == "rgb":
-        hex_color = f"#{rgb.rgb[2:]}"  # Skip "FF" alpha part
-        color_name = COLOR_MAP.get(hex_color.upper(), "Custom Color")
-        return f"{hex_color} ({color_name})"
+        hex_color = f"#{rgb.rgb[2:]}"
+        return COLOR_MAP.get(hex_color.upper(), "Custom Color")
     elif rgb.type == "theme":
         return f"Theme Color {rgb.theme} (Tint {rgb.tint})"
     return "Unknown Format"
@@ -47,86 +26,148 @@ def rgb_to_hex_name(rgb):
 def get_sheet_tab_colors(file_path):
     wb = openpyxl.load_workbook(file_path, data_only=True)
     sheet_colors = {}
-
     for sheet_name in wb.sheetnames:
         sheet = wb[sheet_name]
         color = sheet.sheet_properties.tabColor
         sheet_colors[sheet_name] = rgb_to_hex_name(color)
-
     return sheet_colors
 
-# GUI for file selection
+def find_end_row(ws, sheet_name):
+    sheet_name_lower = sheet_name.lower()
+    for row in range(7, ws.max_row + 1):
+        cell = ws[f"A{row}"]
+        if cell.value and isinstance(cell.value, str) and cell.value.lower() == "summe" and cell.font.bold:
+            return row
+    for row in range(7, ws.max_row + 1):
+        cell = ws[f"A{row}"]
+        if cell.value and isinstance(cell.value, str) and cell.value.strip().lower() == sheet_name_lower:
+            return row
+    for row in range(7, ws.max_row + 1):
+        if ws[f"A{row}"].value in (None, ""):
+            return row - 1
+    return ws.max_row
+
+def find_merged_veraenderung_columns(ws):
+    for row in [3, 4]:
+        for merged_range in ws.merged_cells.ranges:
+            if merged_range.min_row == row and merged_range.max_row == row:
+                cell_value = ws.cell(row=row, column=merged_range.min_col).value
+                if cell_value and "veränderung" in str(cell_value).lower():
+                    return (merged_range.min_col, merged_range.max_col)
+        for col in range(1, ws.max_column + 1):
+            cell = ws.cell(row=row, column=col)
+            if cell.value and "veränderung" in str(cell.value).lower():
+                return (col, col)
+    return None
+
+def style_cell(cell):
+    cell.font = Font(bold=True)
+    cell.alignment = Alignment(horizontal="center")
+
+def extract_lookup_keys(value):
+    if not value:
+        return []
+    parts = re.split(r'[,+\\-]', str(value))
+    return [re.sub(r'\\s+', '', part.strip()) for part in parts if part.strip()]
+
+def lookup_and_aggregate(keys, kosten_ws, column_letter):
+    values = []
+    for row in kosten_ws.iter_rows(min_row=2):
+        ref = str(row[0].value) if row[0].value else ""
+        for key in keys:
+            if key and (ref == key or key in ref):
+                val = row[ord(column_letter) - 65].value
+                if isinstance(val, (int, float)):
+                    values.append(val)
+    return sum(values) if values else None
+
+def process_excel_files(directory):
+    current_year = datetime.now().year
+    kostenstelle_path = None
+    for file in os.listdir(directory):
+        if file.lower().startswith("kostenstelle") and file.endswith((".xlsx", ".xlsm")):
+            kostenstelle_path = os.path.join(directory, file)
+            break
+    if not kostenstelle_path:
+        print("Kostenstelle file not found.")
+        return
+
+    kosten_wb = openpyxl.load_workbook(kostenstelle_path, data_only=True)
+    kosten_ws = kosten_wb.active
+
+    for file in os.listdir(directory):
+        if file.lower().startswith("kostenstelle") or not file.endswith((".xlsx", ".xlsm")):
+            continue
+        file_path = os.path.join(directory, file)
+        wb = openpyxl.load_workbook(file_path)
+        sheet_colors = get_sheet_tab_colors(file_path)
+
+        for sheet_name in wb.sheetnames:
+            tab_color = sheet_colors.get(sheet_name, "")
+            if "yellow" not in tab_color.lower():
+                continue
+
+            ws = wb[sheet_name]
+            end_row = find_end_row(ws, sheet_name)
+            vera_cols = find_merged_veraenderung_columns(ws)
+            if vera_cols is None:
+                continue
+
+            vera_start_col, vera_end_col = vera_cols
+            insert_col = vera_start_col
+
+            # Insert two new columns before the merged Veränderung column
+            ws.insert_cols(insert_col, 2)
+
+            # Write headers
+            ws.cell(row=3, column=insert_col).value = "Plan"
+            ws.cell(row=4, column=insert_col).value = current_year + 1
+            style_cell(ws.cell(row=3, column=insert_col))
+            style_cell(ws.cell(row=4, column=insert_col))
+
+            ws.cell(row=3, column=insert_col + 1).value = "IST"
+            ws.cell(row=4, column=insert_col + 1).value = f"{current_year}e"
+            style_cell(ws.cell(row=3, column=insert_col + 1))
+            style_cell(ws.cell(row=4, column=insert_col + 1))
+
+            # Lookup logic
+            for row in range(5, end_row + 1):
+                ab_value = ws[f"AB{row}"].value
+                if not ab_value:
+                    continue
+                keys = extract_lookup_keys(ab_value)
+                plan_value = lookup_and_aggregate(keys, kosten_ws, "D")
+                ist_value = lookup_and_aggregate(keys, kosten_ws, "C")
+                if plan_value is not None:
+                    ws.cell(row=row, column=insert_col).value = plan_value
+                if ist_value is not None:
+                    ws.cell(row=row, column=insert_col + 1).value = ist_value
+
+            # Columns to unhide
+            unhide_cols = {1, insert_col, insert_col + 1}
+            unhide_cols.update(range(vera_start_col + 2, vera_end_col + 3))  # Adjusted for shifted columns
+
+            # Additional logic to preserve IST/Plan from previous years
+            for col in range(1, ws.max_column + 1):
+                header3 = ws.cell(row=3, column=col).value
+                header4 = str(ws.cell(row=4, column=col).value).replace("e", "").strip()
+                if (header3 == "Plan" and header4 == str(current_year + 1)) or \
+                   (header3 == "IST" and header4 in [str(current_year), str(current_year - 1), str(current_year - 2)]):
+                    unhide_cols.add(col)
+
+            # Hide all other columns
+            for col in range(1, ws.max_column + 1):
+                col_letter = get_column_letter(col)
+                ws.column_dimensions[col_letter].hidden = col not in unhide_cols
+
+        wb.save(file_path)
+
 def main():
     root = Tk()
     root.withdraw()
-    file_path = filedialog.askopenfilename(
-        title="Select Excel file",
-        filetypes=[("Excel files", "*.xlsx *.xlsm *.xltx *.xltm")]
-    )
-
-    if not file_path:
-        print("No file selected.")
-        return
-
-    colors = get_sheet_tab_colors(file_path)
-    for sheet, color in colors.items():
-        print(f"Sheet: {sheet}, Tab Color: {color}")
+    selected_directory = filedialog.askdirectory(title="Select Directory with Excel Files")
+    if selected_directory:
+        process_excel_files(selected_directory)
 
 if __name__ == "__main__":
     main()
-
-
-So if the program identifies the place where we write the sheet Name is filled with yellow , then do the following process. 
-
-at first identify the end row , the end row is identified by the following logic , 
-
-in column index A , starting from row 7 , in which cell it find the Keyword Summe written in bold  . 
-then mark that row as the end row . If it couldnt find the Summe written in bold in column index A anywhere then search from row 7 onwards where in which row in column index A we can find exact match with the sheet Name . For that extract the sheet Name and comapre it with the values starting from row 7. If it find any matching value with the sheet Name (case insensitive) then consider that row as the end row. If it couldnt find that also then the 
-next fall back logic is like , starting from row 7 onwards , check in which cell it finds no value . so if it finds a cell with no value in column index A , then consider the cell Above and fix that as the end row. 
-
-After Fixing the end row then the next step is that , in row 3 or  row 4 , in which column  it identifies the Keyword Veränderung(case insensitive). After identifying that column or  column index , add two new columns to the left of that identified column or column index . the column Right of the identified column , identified column itself, and the two newly added two columns shouldnt be hidden.
-in the column or column index  , which is direct left of the identified column index , please write in row 3 Plan and in row 4 current year + 1 . For example in row 3 write Plan and in row 4 write 2026 if the current year is 2025. 
-Both should be written in bold and should be placed in the Center of the cell. 
-then in the current  Directory , take the file that starts with the Name Kostenstelle.
-Then next step is that we are Performing a v-look up and taking values from  the file whose  Name starts with Kostenstelle .
-in the current column , which is direct left of the identified column ,for each row in the current working sheet starting from row 5 till the end row check if the value in column index AB Matches with the value in column index A in the Kostenstelle file, then copy the corresponding
-value from column index D to the corresponding row in  column or column index direct left to the identified column index.
-please note that the value in rows in column index AB are like 4557 775 67575, 47647648686,897598757959  in a single row. In other case row  value are like J7799 ,SS336 etc  and in other case the values are like
- 7077510000 + 7077515000 vom Knoten G51 and in some other case the values are like S446 + S447 + S443 - 70 787 50 400 - 70 787 50 500.
-In the first case if the value in the row is like 4557 775 67575, 47647648686,897598757959  here take three values for lookup  after deleting the void or empty spaces between the numbers and if it found a match in column index A , then we will have three different values from column index d 
-in Kostenstelle file , add that together and write a single value in row in  current column index in the current sheet. then the next case if the lookup value is like J7799 ,SS336 then search this value in column index A 
-of the kostenstelle file such that exact 1 to 1 match may be there, or else the value in column index A if ist like t666654/J7799 , even though ist not a 1 to 1 match , but still its a match , then also v.look up should function without any Problem. That means the look up value is present is the important in when we look that value in column index A , that value can contain other elements but if the lookup value is present in that row even with some other value should also be okay. in the next case if the look up value in the column which is direct left to the identified column is like  7077510000 + 7077515000 vom Knoten G51 , then separate this portion from the numbers and take the numbers separately and perform the look up. After gettting the values separately for the two numbers then please add the two values and then write to corresponding row in current column . In the next case if the 
-values are like S446 + S447 + S443 - 70 787 50 400 - 70 787 50 500 that means each of the 5 values should be treated separately for the vlook up and after performing the vlook up perform the operation in the cell 
-like here in this case add the 3 values then subract the final two values from the sum and write a single value to the corresponding in the current column. 
-
-
-
-
-then in the column index, which is not direct left of the identified column index , write IST in row 3 and write current year e in row 4. For example in row 3 write IST and in row 4 write 2025e if the current year is 2025. 
-Both should be written in bold and should be placed in the Center of the cell. 
-then in the current  Directory , take the file that starts with the Name Kostenstelle.
-Then next step is that we are Performing a v-look up and taking values from  the file whose  Name starts with Kostenstelle .
-for each row in the current working sheet starting from row 5 till the end row check if the value in column index AB Matches with the value in column index A in the Kostenstelle file, then copy the corresponding
-value from column index C to the corresponding row in  column index which is not direct left to the identified column index.
-please note that the value in rows in column index AB are like 4557 775 67575, 47647648686,897598757959  in some rows. In other rows the value are like J7799 .
-In the first case if the value in the row is like 4557 775 67575, 47647648686,897598757959  here take three values for lookup and if it found a match in column index A , then we will have three different values from column index C
-in Kostenstelle file , add that together and write a single value in row in  current column index in the current sheet. then the next case if the lookup value is like J7799 , then search this value in column index A 
-of the kostenstelle file such that exact 1 to 1 match may be there, or else the value in column index A if ist like t666654/J7799 , even though ist not a 1 to 1 match , but still ist a match , then also v.look up should function without any Problem. 
-
-if for both column Indices if there is no value in column index AB, then do Nothing.
-
-then the next step is that , identify the column which has Keyword Plan in row 3 and the current year in row 4. this column shouldnt be hidden. 
-then the next step is that , identify the column which has Keyword IST in row 3 and the previous year in row 4 . for example IST in row 3 and 2024e or 2024 in row 4. this column shouldnt be hidden. 
-then the next step is that , identify the column which has Keyword IST in row 3 and the current year-2 in row 4 . for example IST in row 3 and 2023e or 2023 in row 4. this column shouldnt be hidden. 
-the column index A also shouldnt be hidden and all other other columns in the current sheet should be hidden.
-
-
-
-
-
-
-
-
-
-
-
