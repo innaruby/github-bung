@@ -1,4 +1,4 @@
-in the following code i would like to add some modifications . i will explain with the help of an example. Let W,X be the columns that contains the keyword Veränderung. Then let the two new columns added are in U and V. After adding the two columns , then in the column W , starting from row 5 ,till the end row apply the formula , the value in column index V-the value in column index U. then in column index X , starting from row 5 till the end row apply the formula , W/U*100.8 please note that u,vw,x i have taken just for example to make you understand what i meant.  import os
+import os
 import re
 from datetime import datetime
 import openpyxl
@@ -63,7 +63,8 @@ def find_merged_veraenderung_columns(ws):
 def style_cell(cell):
     cell.font = Font(size=16, bold=True)
     cell.alignment = Alignment(horizontal="center")
-    hair_border = Border(left=Side(style='hair'), right=Side(style='hair'), top=Side(style='hair'), bottom=Side(style='hair'))
+    hair_border = Border(left=Side(style='hair'), right=Side(style='hair'),
+                         top=Side(style='hair'), bottom=Side(style='hair'))
     cell.border = hair_border
 
 def extract_lookup_keys(value):
@@ -82,6 +83,18 @@ def lookup_and_aggregate(keys, kosten_ws, column_letter):
                 if isinstance(val, (int, float)):
                     values.append(val)
     return sum(values) if values else None
+
+def apply_veraenderung_formulas(ws, ist_col, plan_col, vera_start_col, end_row):
+    diff_col = vera_start_col + 2   # First Veränderung
+    perc_col = vera_start_col + 3   # Second Veränderung
+
+    for row in range(5, end_row + 1):
+        plan_letter = get_column_letter(plan_col)
+        ist_letter = get_column_letter(ist_col)
+        diff_letter = get_column_letter(diff_col)
+
+        ws.cell(row=row, column=diff_col).value = f"={plan_letter}{row}-{ist_letter}{row}"
+        ws.cell(row=row, column=perc_col).value = f"=IF({ist_letter}{row}=0,0,({diff_letter}{row}/{ist_letter}{row})*100)"
 
 def process_excel_files(directory):
     current_year = datetime.now().year
@@ -106,7 +119,7 @@ def process_excel_files(directory):
 
         for sheet_name in wb.sheetnames:
             tab_color = sheet_colors.get(sheet_name, "")
-            if "green" not in tab_color.lower():  # Changed from "yellow" to "green"
+            if "green" not in tab_color.lower():
                 continue
 
             ws = wb[sheet_name]
@@ -118,29 +131,26 @@ def process_excel_files(directory):
             vera_start_col, vera_end_col = vera_cols
             insert_col = vera_start_col
 
-            # Preserve merged range info and unmerge
             merged_to_restore = []
             for merged_range in list(ws.merged_cells.ranges):
                 if merged_range.min_row == 3 and merged_range.max_row == 3:
                     if merged_range.min_col == vera_start_col and merged_range.max_col == vera_end_col:
                         merged_to_restore.append(merged_range)
                         ws.unmerge_cells(str(merged_range))
-            # Avoid inserting again if "Plan" and "IST" already exist
+
             existing_plan = ws.cell(row=3, column=vera_start_col - 2).value
             existing_ist = ws.cell(row=3, column=vera_start_col - 1).value
             if str(existing_plan).strip().lower() == "plan" and str(existing_ist).strip().lower() == "ist":
                 print(f"Skipping insertion in sheet '{sheet_name}' of file '{file}' as columns already exist.")
                 continue
-            # Insert columns BEFORE Veränderung
+
             ws.insert_cols(insert_col, 2)
 
-            # Restore merged cells with updated positions
             for merged_range in merged_to_restore:
                 new_start = merged_range.min_col + 2
                 new_end = merged_range.max_col + 2
                 ws.merge_cells(start_row=3, start_column=new_start, end_row=3, end_column=new_end)
 
-            # Add headers
             ws.cell(row=3, column=insert_col).value = "IST"
             ws.cell(row=4, column=insert_col).value = f"{current_year}e"
             style_cell(ws.cell(row=3, column=insert_col))
@@ -151,14 +161,12 @@ def process_excel_files(directory):
             style_cell(ws.cell(row=3, column=insert_col + 1))
             style_cell(ws.cell(row=4, column=insert_col + 1))
 
-            # Initialize and style cells in the newly added columns
             for row in range(5, end_row + 1):
                 ws.cell(row=row, column=insert_col).value = None
                 ws.cell(row=row, column=insert_col + 1).value = None
                 style_cell(ws.cell(row=row, column=insert_col))
                 style_cell(ws.cell(row=row, column=insert_col + 1))
 
-            # Lookup and fill values
             for row in range(5, end_row + 1):
                 ab_value = ws[f"AB{row}"].value
                 if not ab_value:
@@ -171,29 +179,30 @@ def process_excel_files(directory):
                 if ist_value is not None:
                     ws.cell(row=row, column=insert_col + 1).value = ist_value
 
-            # Columns to unhide
+            # Apply formulas to Veränderung columns
+            apply_veraenderung_formulas(ws, ist_col=insert_col, plan_col=insert_col + 1,
+                                        vera_start_col=vera_start_col, end_row=end_row)
+
             unhide_cols = {1, insert_col, insert_col + 1}
-            unhide_cols.update(range(vera_start_col + 2, vera_end_col + 3))  # Adjust for shifted Veränderung
+            unhide_cols.update(range(vera_start_col + 2, vera_end_col + 4))
 
             for col in range(1, ws.max_column + 1):
                 header3 = ws.cell(row=3, column=col).value
                 header4 = str(ws.cell(row=4, column=col).value)
-                if (header3 == "PLAN" and header4.replace("e", "").strip() == str(current_year)) or                     (header3 == "IST" and header4.replace("e", "").strip() in [str(current_year), str(current_year - 1), str(current_year - 2)]):
+                if (header3 == "PLAN" and header4.replace("e", "").strip() == str(current_year)) or \
+                   (header3 == "IST" and header4.replace("e", "").strip() in [str(current_year), str(current_year - 1), str(current_year - 2)]):
                     unhide_cols.add(col)
-                    # Remove the alphabet 'e' from the cell value in row 4, except for the newly added columns
                     if col != insert_col and col != insert_col + 1:
                         ws.cell(row=4, column=col).value = header4.replace("e", "").strip()
 
-            # Hide all other columns
             for col in range(1, ws.max_column + 1):
                 col_letter = get_column_letter(col)
                 ws.column_dimensions[col_letter].hidden = col not in unhide_cols
 
-            # Set column widths for unhidden columns except column A
             for col in unhide_cols:
-                if col != 1:  # Skip column A
+                if col != 1:
                     col_letter = get_column_letter(col)
-                    ws.column_dimensions[col_letter].width = 18  # Adjust width as needed
+                    ws.column_dimensions[col_letter].width = 18
 
         wb.save(file_path)
 
