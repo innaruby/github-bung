@@ -217,7 +217,7 @@ if __name__ == "__main__":
     main()
 
 
-    Performing a v-look up and taking values from  the file whose  Name starts with Kostenstelle .
+   please update the code such that, Performing a v-look up and taking values from  the file whose  Name starts with Kostenstelle .
 for each row in the current working sheet starting from row 5 till the end row check if the value in column index AB Matches with the value in column index A in the Kostenstelle file, then copy the corresponding
 value from column index D to the corresponding row in  column or column index direct left to the identified column index.
 please note that the value in rows in column index AB are like 4557 775 67575, 47647648686,897598757959  in a single row. In other case row  value are like J7799 that means only one value.
