@@ -220,9 +220,14 @@ if __name__ == "__main__":
    please update the code such that, Performing a v-look up and taking values from  the file whose  Name starts with Kostenstelle .
 for each row in the current working sheet starting from row 5 till the end row check if the value in column index AB Matches with the value in column index A in the Kostenstelle file, then copy the corresponding
 value from column index D to the corresponding row in  column or column index direct left to the identified column index.
-please note that the value in rows in column index AB are like 4557 775 67575, 47647648686,897598757959  in a single row. In other case row  value are like J7799 that means only one value.
+please note that the value in rows in column index AB are like 4557 775 67575, 47647648686,897598757959  in a single cell in column index AB. In other case row  value are like J7799 that means only one value.
 In the first case if the value in the row is like 4557 775 67575, 47647648686,897598757959  here take three values for lookup and if it found a match in column index A , then we will have three different values from column index d 
-in Kostenstelle file , add that together and write a single value in row in  current column index in the current sheet. then the next case if the lookup value is like J7799 , then search this value in column index A 
+in Kostenstelle file , add that together and write a single value in row in   column index which is direct left of the first Veränderung column in the current sheet. then the next case if the lookup value is like J7799 , then search this value in column index A 
 of the kostenstelle file such that exact 1 to 1 match may be there, or else the value in column index A if ist like t666654/J7799 , even though ist not a 1 to 1 match , but still its a match , then also v.look up should function without any Problem. 
+so if the value in cell in column index AB is like S2342 +  S24324 - 74532462  + 5354235 - 65424624, that means take each value from that cell perform the v-look up and then perform addition or subtraction according to the sign given , and then write a single value to the target cell. 
+IF the value in the cell in column index AB is like S24242 + T23452 + 535235  Sgkeeitqiiiinpöp, here in this case when it detects two alphabets next to one another like Sg , this shouldnt be considered for v-look up. 
+only the value like S3423 or T2424352 like starting with an alphabet and then numbers or only numbers.  
+if the value in cell is like 70 787 50 500 Bankfremd , take the numeric part  70 787 50 500 and avoid the alphabetical part for v.look up 
+
 
 
