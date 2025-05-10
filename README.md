@@ -8,19 +8,14 @@ from openpyxl.styles import PatternFill
 GREEN_HEX_CODES = {"FF90EE90", "FF92D050", "FF00FF00"}
 
 # Define color fills
-red_fill = PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid")
+orange_fill = PatternFill(start_color="FFA500", end_color="FFA500", fill_type="solid")
 green_fill = PatternFill(start_color="FF90EE90", end_color="FF90EE90", fill_type="solid")
 
-KOSTENSTELLE_PATH = r"U:\rlbnas1_rlb_bw_firw_z\Controlling\FC\04 KORE\02 BAB-Tabellen\02 KST\Kostenstellen.xlsx"
+KOSTENSTELLE_PATH = r"U:\\rlbnas1_rlb_bw_firw_z\\Controlling\\FC\\04 KORE\\02 BAB-Tabellen\\02 KST\\Kostenstellen.xlsx"
+OUTPUT_DIR = r"U:/newfolder/vjvl"
 
 def browse_file(entry):
     path = filedialog.askopenfilename(filetypes=[("Excel files", "*.xlsx")])
-    if path:
-        entry.delete(0, tk.END)
-        entry.insert(0, path)
-
-def browse_directory(entry):
-    path = filedialog.askdirectory()
     if path:
         entry.delete(0, tk.END)
         entry.insert(0, path)
@@ -80,8 +75,6 @@ def process_column_m(row_num, copy_ws, kostenstelle_data, column_a_colors, green
     if isinstance(f_val, str) and f_val.lower() == "aktiv":
         copy_ws[f"M{row_num}"].value = "okay"
     elif isinstance(f_val, str) and f_val.lower() == "inaktiv":
-        fill_color = column_a_colors.get(i_val)
-
         if i_val in green_i_lookup:
             matched_i = green_i_lookup[i_val]
             copy_ws[f"M{row_num}"].value = matched_i
@@ -102,29 +95,45 @@ def process_section(start_row, input_ws, copy_ws, kostenstelle_ws, column_a_colo
     end_row = row - 1
 
     for r in range(start_row, end_row + 1):
+        c_val = str(input_ws[f"C{r}"].value)
+        if c_val.startswith("9"):
+            copy_ws[f"C{r}"].value = input_ws[f"C{r}"].value
+            copy_ws[f"D{r}"].value = input_ws[f"D{r}"].value
+            d_val = copy_ws[f"D{r}"].value
+            if d_val:
+                length = len(str(d_val).replace(" ", ""))
+                copy_ws[f"L{r}"].value = length
+                if length > 50:
+                    copy_ws[f"L{r}"].fill = orange_fill
+            process_column_m(r, copy_ws, kostenstelle_data, column_a_colors, green_i_lookup, kostenstelle_ws)
+            continue
+
         copy_ws[f"B{r}"].value = None
         for col in ["C", "D", "E", "F", "H"]:
             copy_ws[f"{col}{r}"].value = input_ws[f"{col}{r}"].value
 
     for r in range(start_row, end_row + 1):
+        c_val = str(input_ws[f"C{r}"].value)
+        if c_val.startswith("9"):
+            continue
+
         h_val = copy_ws[f"H{r}"].value
         if h_val in kostenstelle_data:
             k_data = kostenstelle_data[h_val]
             b_val = k_data["E"]
             copy_ws[f"B{r}"].value = b_val
 
-            c_val = str(copy_ws[f"C{r}"].value)
-            if (c_val.startswith("705") or c_val.startswith("706") or c_val.startswith("707") or c_val.startswith("5")):
+            if c_val.startswith(("705", "706", "707", "5")):
                 copy_ws[f"G{r}"].value = "V0" if b_val == 1001 else "U0" if b_val == 1002 else None
-            elif c_val.startswith("704") or c_val.startswith("6"):
+            elif c_val.startswith(("704", "6")):
                 copy_ws[f"G{r}"].value = "A0" if b_val == 1001 else "D0" if b_val == 1002 else None
 
             d_val = copy_ws[f"D{r}"].value
             if d_val:
                 length = len(str(d_val).replace(" ", ""))
                 copy_ws[f"L{r}"].value = length
-                if length >= 50:
-                    copy_ws[f"L{r}"].fill = red_fill
+                if length > 50:
+                    copy_ws[f"L{r}"].fill = orange_fill
 
     for r in range(start_row, end_row + 1):
         process_column_m(r, copy_ws, kostenstelle_data, column_a_colors, green_i_lookup, kostenstelle_ws)
@@ -133,11 +142,14 @@ def process_section(start_row, input_ws, copy_ws, kostenstelle_ws, column_a_colo
         m_cell = copy_ws[f"M{r}"]
         try:
             if isinstance(m_cell.value, (int, float)):
-                m_cell.fill = red_fill
+                m_cell.fill = orange_fill
         except:
             continue
 
     for r in range(start_row, end_row + 1):
+        c_val = str(input_ws[f"C{r}"].value)
+        if c_val.startswith("9"):
+            continue
         g_val = copy_ws[f"G{r}"].value
         if g_val in ["A0", "D0"]:
             h_cell_val = copy_ws[f"H{r}"].value
@@ -146,10 +158,10 @@ def process_section(start_row, input_ws, copy_ws, kostenstelle_ws, column_a_colo
                 copy_ws[f"K{r}"].value = int("100000" + last_digits)
                 copy_ws[f"H{r}"].value = None
 
-def process_files(input_path, output_dir, user_start_row=None):
+def process_files(input_path, user_start_row=None):
     filename = os.path.basename(input_path)
     filename_no_ext = os.path.splitext(filename)[0]
-    output_path = os.path.join(output_dir, f"{filename_no_ext} Neu.xlsx")
+    output_path = os.path.join(OUTPUT_DIR, f"{filename_no_ext} Neu.xlsx")
 
     input_wb = openpyxl.load_workbook(input_path)
     input_ws = input_wb.active
@@ -172,7 +184,6 @@ def process_files(input_path, output_dir, user_start_row=None):
 
     column_a_colors, green_i_lookup = get_column_a_colors(KOSTENSTELLE_PATH)
 
-    # Process fixed row 16 section and compute totals
     process_section(16, input_ws, copy_ws, kostenstelle_ws, column_a_colors, green_i_lookup, kostenstelle_data)
 
     row = 16
@@ -190,7 +201,6 @@ def process_files(input_path, output_dir, user_start_row=None):
     copy_ws.cell(row=15, column=13).value = "Kontrolle alte KST"
     copy_ws.cell(row=15, column=12).value = "Kontrolle Länge Positionstext"
 
-    # If user gave additional start row, process it separately
     if user_start_row and user_start_row != 16:
         process_section(user_start_row, input_ws, copy_ws, kostenstelle_ws, column_a_colors, green_i_lookup, kostenstelle_data)
 
@@ -210,22 +220,16 @@ def main():
     input_entry.grid(row=0, column=1)
     tk.Button(root, text="Browse", command=lambda: browse_file(input_entry)).grid(row=0, column=2)
 
-    tk.Label(root, text="Ziel Verzeichnis").grid(row=1, column=0, padx=10, pady=10)
-    output_entry = tk.Entry(root, width=50)
-    output_entry.grid(row=1, column=1)
-    tk.Button(root, text="Browse", command=lambda: browse_directory(output_entry)).grid(row=1, column=2)
-
-    tk.Label(root, text="Zusätzliche Zeile (Optional)").grid(row=2, column=0, padx=10, pady=10)
+    tk.Label(root, text="Zusätzliche Zeile (Optional)").grid(row=1, column=0, padx=10, pady=10)
     row_entry = tk.Entry(root, width=10)
-    row_entry.grid(row=2, column=1, sticky='w')
+    row_entry.grid(row=1, column=1, sticky='w')
 
     def run_process():
         input_path = input_entry.get()
-        output_dir = output_entry.get()
         row_val = row_entry.get()
 
-        if not input_path or not output_dir:
-            messagebox.showerror("Error", "Both input file and output directory are required!")
+        if not input_path:
+            messagebox.showerror("Error", "Input file is required!")
             return
 
         try:
@@ -234,9 +238,9 @@ def main():
             messagebox.showerror("Error", "Please enter a valid number for the row.")
             return
 
-        process_files(input_path, output_dir, custom_row)
+        process_files(input_path, custom_row)
 
-    tk.Button(root, text="Process Files", command=run_process, bg="lightblue").grid(row=3, column=1, pady=20)
+    tk.Button(root, text="Process Files", command=run_process, bg="lightblue").grid(row=2, column=1, pady=20)
     root.mainloop()
 
 if __name__ == "__main__":
