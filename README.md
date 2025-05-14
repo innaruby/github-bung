@@ -1,22 +1,25 @@
 def perform_custom_vlookup(current_ws, kosten_ws, end_row, current_year, sheet_name):
     print(f"\n Processing VLOOKUP for sheet: {sheet_name}")
+    ist_prev_year_col = ist_current_year_col = plan_next_year_col = None
 
-    def find_column(header_1, header_2):
-        for col in range(1, current_ws.max_column + 1):
-            h1 = str(current_ws.cell(row=3, column=col).value).strip().upper()
-            h2 = str(current_ws.cell(row=4, column=col).value).replace("e", "").strip()
-            if h1 == header_1 and h2 == header_2:
-                print(f" Found column → {header_1} {header_2} → {get_column_letter(col)} (Index {col})")
-                return col
-        print(f" Column not found → {header_1} {header_2}")
-        return None
+    # Identify target columns
+    for col in range(1, current_ws.max_column + 1):
+        header = current_ws.cell(row=3, column=col).value
+        year = str(current_ws.cell(row=4, column=col).value).replace("e", "").strip()
 
-    # Find target columns
-    ist_prev_col = find_column("IST", str(current_year - 1))
-    ist_curr_col = find_column("IST", str(current_year))
-    plan_next_col = find_column("PLAN", str(current_year + 1))
+        if header and header.strip().upper() == "IST":
+            if year == str(current_year - 1):
+                ist_prev_year_col = col
+                print(f" Found IST column for year {current_year - 1} → Column {get_column_letter(col)}")
+            elif year == str(current_year):
+                ist_current_year_col = col
+                print(f" Found IST column for year {current_year} → Column {get_column_letter(col)}")
 
-    if not ist_prev_col:
+        elif header and header.strip().upper() == "PLAN" and year == str(current_year + 1):
+            plan_next_year_col = col
+            print(f" Found PLAN column for year {current_year + 1} → Column {get_column_letter(col)}")
+
+    if not ist_prev_year_col:
         print(" IST column with previous year not found.")
         return
 
@@ -24,52 +27,50 @@ def perform_custom_vlookup(current_ws, kosten_ws, end_row, current_year, sheet_n
         ab_value = str(current_ws.cell(row=row, column=28).value)
         if not ab_value.strip():
             continue
+
         print(f"\n🖎 Row {row}, AB value: {ab_value}")
         tokens = extract_valid_tokens(ab_value)
         print(f" Tokens extracted: {tokens}")
 
-        expr_c = ""  # Column C
-        expr_h = ""  # Column H
-        expr_i = ""  # Column I
-
-        for token in tokens:
-            if token in ['+', '-']:
-                expr_c += f" {token} "
-                expr_h += f" {token} "
-                expr_i += f" {token} "
-                continue
-
-            val_c = val_h = val_i = 0
+        def get_kosten_value(token, column_index):
             for kosten_row in range(2, kosten_ws.max_row + 1):
                 key = str(kosten_ws.cell(row=kosten_row, column=1).value)
                 if token == key or token in key:
-                    val_c = kosten_ws.cell(row=kosten_row, column=3).value or 0
-                    val_h = kosten_ws.cell(row=kosten_row, column=8).value or 0
-                    val_i = kosten_ws.cell(row=kosten_row, column=9).value or 0
-                    print(f"   Matched '{token}' in row {kosten_row} → C: {val_c}, H: {val_h}, I: {val_i}")
-                    break
+                    value = kosten_ws.cell(row=kosten_row, column=column_index).value
+                    return float(str(value).replace(",", ".")) if value else 0
+            return 0
 
-            expr_c += str(int(val_c))
-            expr_h += str(int(val_h))
-            expr_i += str(int(val_i))
+        # Processing and writing for each target column
+        for target_col, kosten_col in [(ist_prev_year_col, 3), (ist_current_year_col, 8), (plan_next_year_col, 9)]:
+            if target_col is None:
+                continue
 
-        # Evaluate and write results
-        def evaluate_and_write(expr, col_index, label):
-            if not expr.strip() or not col_index:
-                return
+            expr = ""
+            for token in tokens:
+                if token in ['+', '-']:
+                    expr += f" {token} "
+                    continue
+
+                match_value = get_kosten_value(token, kosten_col)
+                expr += str(match_value)
+
+            if not expr.strip():
+                print(f" No valid tokens to evaluate at row {row} for column {get_column_letter(target_col)} — skipping.")
+                continue
+
             try:
                 result = eval(expr)
-                result = round(result)
-                print(f" Final Expression ({label}): {expr} = {result}")
-                cell = current_ws.cell(row=row, column=col_index)
-                if not isinstance(cell, openpyxl.cell.cell.MergedCell):
-                    cell.value = result
-                    print(f"  → Value {result} written to {get_column_letter(col_index)}{row}")
-                else:
-                    print(f"  → Cannot write to merged cell at {get_column_letter(col_index)}{row}")
+                result = int(round(result))  # Round to nearest integer
+                print(f" Expression for {get_column_letter(target_col)}{row}: {expr} = {result}")
             except Exception as e:
-                print(f"  → Error evaluating expression for {label}: {e}")
+                print(f" Error evaluating expression '{expr}': {e}")
+                result = 0
 
-        evaluate_and_write(expr_c, ist_prev_col, f"IST {current_year - 1}")
-        evaluate_and_write(expr_h, ist_curr_col, f"IST {current_year}")
-        evaluate_and_write(expr_i, plan_next_col, f"PLAN {current_year + 1}")
+            # Writing final rounded integer value
+            cell = current_ws.cell(row=row, column=target_col)
+            if isinstance(cell, openpyxl.cell.cell.MergedCell):
+                print(f" Cannot write to merged cell at {get_column_letter(target_col)}{row} — skipping.")
+                continue
+
+            cell.value = result
+            print(f" Value {result} written to {get_column_letter(target_col)}{row}")
