@@ -60,17 +60,20 @@ def perform_custom_vlookup(current_ws, kosten_ws, end_row, current_year, sheet_n
 
             try:
                 result = eval(expr)
-                result = int(round(result))  # Round to nearest integer
-                print(f" Expression for {get_column_letter(target_col)}{row}: {expr} = {result}")
+                if result >= 1000:
+                    final_value = round(result / 1000, 3)
+                else:
+                    final_value = round(result)
+                print(f" Expression for {get_column_letter(target_col)}{row}: {expr} = {final_value}")
             except Exception as e:
                 print(f" Error evaluating expression '{expr}': {e}")
-                result = 0
+                final_value = 0
 
-            # Writing final rounded integer value
+            # Writing final rounded value
             cell = current_ws.cell(row=row, column=target_col)
             if isinstance(cell, openpyxl.cell.cell.MergedCell):
                 print(f" Cannot write to merged cell at {get_column_letter(target_col)}{row} — skipping.")
                 continue
 
-            cell.value = result
-            print(f" Value {result} written to {get_column_letter(target_col)}{row}")
+            cell.value = final_value
+            print(f" Value {final_value} written to {get_column_letter(target_col)}{row}")
