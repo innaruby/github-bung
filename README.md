@@ -59,8 +59,16 @@ def perform_custom_vlookup(current_ws, kosten_ws, end_row, current_year, sheet_n
         def format_value_for_columns(value, col_index):
             # Apply formatting for IST and PLAN columns
             if col_index in [ist_prev_col, ist_curr_col, plan_next_col]:
+                # Remove commas and handle the thousand separator
+                value_str = str(value).replace(',', '')
+                try:
+                    value = float(value_str)
+                except ValueError:
+                    return str(value)  # If conversion fails, return original value
+                
                 if value >= 1000:
-                    return f"{value / 1000:.3f}"  # Convert to format like 7.171
+                    # Apply the formatting to convert e.g. 3173 -> 3.174
+                    return f"{value / 1000:.3f}"
                 else:
                     return str(int(value))  # Round and return as integer
             return str(value)  # Return the value as is for other columns
