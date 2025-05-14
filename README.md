@@ -4,7 +4,7 @@ def apply_final_sums(ws, end_row):
     sheet_name = ws.title
     print(f"\n🧮 Starting apply_final_sums for sheet: {sheet_name}")
 
-    # Step 1: Locate "Veränderung" column and visible columns before it
+    # Step 1: Find Veränderung columns and visible columns before that
     veraenderung_cols = find_merged_veraenderung_columns(ws)
     if not veraenderung_cols:
         print(f"❌ [Sheet: {sheet_name}] Veränderung columns not found.")
@@ -26,7 +26,7 @@ def apply_final_sums(ws, end_row):
         print(f"⚠️ [Sheet: {sheet_name}] No visible columns found before Veränderung. Skipping.")
         return
 
-    # Step 2: Find the "Summe" row (bold text in column A from row 5 to end_row)
+    # Step 2: Find "Summe" row (bold text in column A)
     summe_row = None
     for row in range(5, end_row + 1):
         cell = ws.cell(row=row, column=1)
@@ -42,7 +42,7 @@ def apply_final_sums(ws, end_row):
         return
     print(f"✅ [Sheet: {sheet_name}] Found 'Summe' in row: {summe_row}")
 
-    # Step 3: Identify visible rows (excluding the Summe row)
+    # Step 3: Get visible rows excluding summe row
     visible_rows = []
     for row in range(5, end_row + 1):
         hidden = ws.row_dimensions[row].hidden
@@ -55,26 +55,38 @@ def apply_final_sums(ws, end_row):
         print(f"⚠️ [Sheet: {sheet_name}] No visible rows found for summing.")
         return
 
-    # Step 4: Sum values in each visible column and write to Summe row
+    # Step 4: Sum values and show detailed debug
     for col in visible_cols:
         col_letter = get_column_letter(col)
         total = 0
+        value_details = []
+
         for row in visible_rows:
             cell = ws.cell(row=row, column=col)
             val = cell.value
+            original_val = val
+
             if val is None or val == "":
                 val = 0
             elif isinstance(val, (int, float)):
-                pass  # valid value
+                pass
             else:
                 try:
                     val = float(str(val).strip())
                 except:
-                    print(f"⚠️ [Sheet: {sheet_name}] Non-numeric value ignored at {col_letter}{row}: {val}")
+                    print(f"⚠️ [Sheet: {sheet_name}] Non-numeric value ignored at {col_letter}{row}: {original_val}")
                     continue
+
+            value_details.append(f"{col_letter}{row}={val}")
             total += val
 
-        # Clear formula or value and write new total
+        # Log sum trace
+        formula_trace = " + ".join([v.split("=")[0] for v in value_details])
+        value_trace = ", ".join(value_details)
+        print(f"🔢 [Sheet: {sheet_name}] Values used for {col_letter}{summe_row}: {value_trace}")
+        print(f"🧾 [Sheet: {sheet_name}] Formula simulated: {formula_trace} = {total}")
+
+        # Remove formula and write result
         target_cell = ws.cell(row=summe_row, column=col)
         target_cell.value = None
         target_cell.value = total
