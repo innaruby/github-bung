@@ -62,9 +62,9 @@ def perform_custom_vlookup(current_ws, kosten_ws, end_row, current_year, sheet_n
             try:
                 result = eval(expr)
                 if result >= 1000:
-                    final_val = round(result / 1000, 3)
+                    final_val = float(f"{result / 1000:.3f}")  # Force float with 3 decimals
                 else:
-                    final_val = round(result)
+                    final_val = int(round(result))
                 print(f" Final Expression ({label}): {expr} = {final_val}")
                 cell = current_ws.cell(row=row, column=col_index)
                 if not isinstance(cell, openpyxl.cell.cell.MergedCell):
