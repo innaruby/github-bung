@@ -29,8 +29,8 @@ def sum_visible_columns(ws, end_row):
         # Remove formulas and write the sum in the Summe row
         summe_cell = ws.cell(row=summe_row, column=col)
         
-        # Check if the cell has a formula
-        if summe_cell.formula is not None:
+        # Check if the cell contains a formula (i.e., starts with '=')
+        if isinstance(summe_cell.value, str) and summe_cell.value.startswith("="):
             summe_cell.value = column_sum  # Replace formula with sum
         else:
             summe_cell.value = column_sum
