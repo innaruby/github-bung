@@ -1,74 +1,44 @@
-def sum_visible_columns(ws, end_row):
-    # Find the row where the "Summe" keyword is located in column A
+def apply_final_sums(ws, end_row):
+    from openpyxl.utils import column_index_from_string
+
+    # Step 1: Find columns: from B to the column before "Veränderung", only visible ones
+    veraenderung_cols = find_merged_veraenderung_columns(ws)
+    if not veraenderung_cols:
+        return
+    vera_col_start = veraenderung_cols[0]
+    visible_cols = [
+        col for col in range(2, vera_col_start)
+        if not ws.column_dimensions[get_column_letter(col)].hidden
+    ]
+
+    # Step 2: Find the "Summe" row in column A (bold), starting from row 5
     summe_row = None
     for row in range(5, end_row + 1):
-        cell = ws[f"A{row}"]
-        if cell.value and "summe" in str(cell.value).lower() and cell.font.bold:
+        cell = ws.cell(row=row, column=1)
+        if str(cell.value).strip().lower() == "summe" and cell.font.bold:
             summe_row = row
-            print(f"Found 'Summe' keyword in row {summe_row}")  # Debug statement
             break
-
     if not summe_row:
-        print(" 'Summe' not found in column A.")
         return
 
-    # Find the columns to be summed (from B until the one before "Veränderung" column)
-    vera_cols = find_merged_veraenderung_columns(ws)
-    if not vera_cols:
-        print(" 'Veränderung' column not found.")
-        return
-    vera_start_col, vera_end_col = vera_cols
-    print(f"Summing columns from B to {get_column_letter(vera_start_col - 1)}")  # Debug statement
+    # Step 3: Identify visible rows (5 to end_row, excluding the Summe row)
+    visible_rows = [
+        row for row in range(5, end_row + 1)
+        if row != summe_row and not ws.row_dimensions[row].hidden
+    ]
 
-    for col in range(2, vera_start_col):  # from column B to the one before "Veränderung"
-        column_sum = 0
-        print(f"Summing column {get_column_letter(col)}")  # Debug statement
-        
-        for row in range(5, end_row + 1):
-            if ws.row_dimensions[row].hidden:  # Skip hidden rows
-                continue
+    # Step 4: Sum up values in each visible column and write into the Summe row
+    for col in visible_cols:
+        col_letter = get_column_letter(col)
+        total = 0
+        for row in visible_rows:
             cell = ws.cell(row=row, column=col)
-            # Try to convert the cell value to a number (int or float)
-            try:
-                cell_value = float(cell.value) if cell.value is not None else 0
-            except ValueError:
-                cell_value = 0  # If the value can't be converted, treat it as 0
+            val = cell.value
+            if isinstance(val, (int, float)):
+                total += val
+            elif val is None or val == "":
+                total += 0
 
-            print(f"Row {row}, Column {get_column_letter(col)}: Adding value {cell_value}")  # Debug statement
-            column_sum += cell_value
-
-        # Directly remove any formula in the "Summe" row and write the sum value
-        if col != 1 and col < vera_start_col:  # If the column is not A or one of the "Veränderung" columns
-            sum_cell = ws.cell(row=summe_row, column=col)
-            sum_cell.value = column_sum  # Directly assign the summed value, clearing any existing formula
-
-        print(f" Sum for column {get_column_letter(col)}: {column_sum}")  # Debug statement
-
-def process_excel_files_with_sum(directory):
-    current_year = datetime.now().year
-    for file in os.listdir(directory):
-        if file.lower().startswith("kostenstelle") or not file.endswith((".xlsx", ".xlsm")):
-            continue
-        file_path = os.path.join(directory, file)
-        wb = openpyxl.load_workbook(file_path)
-        sheet_colors = get_sheet_tab_colors(file_path)
-
-        for sheet_name in wb.sheetnames:
-            tab_color = sheet_colors.get(sheet_name, "")
-            if "green" not in tab_color.lower():
-                continue
-
-            ws = wb[sheet_name]
-            end_row = find_end_row(ws, sheet_name)
-            sum_visible_columns(ws, end_row)  # Call the sum function
-            wb.save(file_path)
-
-def main():
-    root = Tk()
-    root.withdraw()
-    selected_directory = filedialog.askdirectory(title="Select Directory with Excel Files")
-    if selected_directory:
-        process_excel_files_with_sum(selected_directory)
-
-if __name__ == "__main__":
-    main()
+        # Remove formula before writing
+        target_cell = ws.cell(row=summe_row, column=col)
+        target_cell.value = total
