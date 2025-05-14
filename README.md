@@ -36,46 +36,12 @@ def sum_visible_columns(ws, end_row):
                     cell_value = 0
                 column_sum += cell_value
 
+        # Before writing the sum, remove formulas in the "Summe" row for columns other than A and the "Veränderung" columns
+        if col != 1 and col < vera_start_col:
+            cell = ws.cell(row=summe_row, column=col)
+            if cell.has_formula:
+                cell.value = None  # Remove formula
+
         # Write the sum to the "Summe" row
         ws.cell(row=summe_row, column=col).value = column_sum
         print(f"Sum written to {column_letter}{summe_row}: {column_sum}")
-
-
-
-def process_excel_files(directory):
-    current_year = datetime.now().year
-
-    for file in os.listdir(directory):
-        if file.lower().startswith("kostenstelle") or not file.endswith((".xlsx", ".xlsm")):
-            continue
-        file_path = os.path.join(directory, file)
-        wb = openpyxl.load_workbook(file_path)
-        sheet_colors = get_sheet_tab_colors(file_path)
-
-        for sheet_name in wb.sheetnames:
-            tab_color = sheet_colors.get(sheet_name, "")
-            if "green" not in tab_color.lower():
-                continue
-
-            ws = wb[sheet_name]
-            delete_columns_B_and_C(ws)
-            end_row = find_end_row(ws, sheet_name)
-            vera_cols = find_merged_veraenderung_columns(ws)
-            if vera_cols is None:
-                continue
-
-            vera_start_col, vera_end_col = vera_cols
-            insert_col = vera_start_col
-
-            merged_to_restore = []
-            for merged_range in list(ws.merged_cells.ranges):
-                if merged_range.min_row == 3 and merged_range.max_row == 3:
-                    if merged_range.min_col == vera_start_col and merged_range.max_col == vera_end_col:
-                        merged_to_restore.append(merged_range)
-                        ws.unmerge_cells(str(merged_range))
-
-            # Your existing operations here ...
-
-            sum_visible_columns(ws, end_row)  # Add this line to perform the summing operation
-
-            wb.save(file_path)
