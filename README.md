@@ -28,7 +28,9 @@ def sum_visible_columns(ws, end_row):
         
         # Remove formulas and write the sum in the Summe row
         summe_cell = ws.cell(row=summe_row, column=col)
-        if summe_cell.has_formula:
+        
+        # Check if the cell has a formula
+        if summe_cell.formula is not None:
             summe_cell.value = column_sum  # Replace formula with sum
         else:
             summe_cell.value = column_sum
@@ -38,7 +40,5 @@ def sum_visible_columns(ws, end_row):
     # Specifically for "Veränderung" columns, skip removing formulas
     for col in range(vera_start_col, vera_end_col + 1):
         summe_cell = ws.cell(row=summe_row, column=col)
-        if summe_cell.has_formula:
-            summe_cell.value = summe_cell.formula  # Keep the existing formula if any
         print(f"Skipping formula removal for column {get_column_letter(col)}")
 
