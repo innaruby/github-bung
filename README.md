@@ -13,11 +13,18 @@ def process_sachaufwand_links(wb):
 
     print("🔍 Processing Sachaufwand links...")
 
-    # Prepare lowercase sheet name map for case-insensitive lookup
+    # 🧹 Step 1: Remove all formulas in Sachaufwand
+    for row in sach_sheet.iter_rows():
+        for cell in row:
+            if isinstance(cell.value, str) and cell.value.strip().startswith("="):
+                cell.value = None
+    print("🧹 Removed all formulas from 'Sachaufwand' sheet.")
+
+    # Step 2: Prepare sheet map for case-insensitive lookup
     sheet_map = {s.lower(): s for s in wb.sheetnames}
 
+    # Step 3: Iterate over visible rows in Sachaufwand column A
     for row in range(5, sach_sheet.max_row + 1):
-        # ✅ Skip hidden rows
         if sach_sheet.row_dimensions[row].hidden:
             continue
 
@@ -32,7 +39,7 @@ def process_sachaufwand_links(wb):
 
         matched_sheet = wb[matched_sheet_name]
 
-        # 🔎 Find the "Summe" row (bold + contains "summe")
+        # Step 4: Find bold 'Summe' row in matched sheet
         summe_row = None
         for r in range(5, matched_sheet.max_row + 1):
             cell = matched_sheet.cell(row=r, column=1)
@@ -43,21 +50,19 @@ def process_sachaufwand_links(wb):
             print(f"⚠️ 'Summe' row not found in sheet '{matched_sheet_name}'.")
             continue
 
-        # 🔎 Find the second "Veränderung" column
+        # Step 5: Find the second 'Veränderung' column
         veraenderung_cols = []
         for r in [3, 4]:
             for c in range(2, matched_sheet.max_column + 1):
                 val = matched_sheet.cell(row=r, column=c).value
                 if val and "veränderung" in str(val).lower():
                     veraenderung_cols.append(c)
-
         if len(veraenderung_cols) < 2:
             print(f"⚠️ Less than 2 'Veränderung' columns found in sheet '{matched_sheet_name}'.")
             continue
+        vera_limit_col = veraenderung_cols[1]  # Include this column
 
-        vera_limit_col = veraenderung_cols[1]  # include this column
-
-        # 📥 Copy visible values from matched sheet's Summe row (columns B to 2nd Veränderung col)
+        # Step 6: Copy visible values from Summe row (B to 2nd Veränderung)
         data_to_copy = []
         for col in range(2, vera_limit_col + 1):
             col_letter = get_column_letter(col)
@@ -65,7 +70,7 @@ def process_sachaufwand_links(wb):
                 val = matched_sheet.cell(row=summe_row, column=col).value
                 data_to_copy.append((col, val))
 
-        # 📤 Paste into Sachaufwand at same row starting from column B in visible columns only
+        # Step 7: Paste into Sachaufwand only in visible columns starting from B
         paste_col_idx = 2
         for col_idx, val in data_to_copy:
             paste_col_letter = get_column_letter(paste_col_idx)
