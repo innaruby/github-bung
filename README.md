@@ -1,247 +1,303 @@
-import tkinter as tk
-from tkinter import filedialog, messagebox
 import os
+import re
+from datetime import datetime
 import openpyxl
-from openpyxl.styles import PatternFill
+from openpyxl.styles import Font, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
+from tkinter import Tk, filedialog
 
-# Acceptable green fill variations
-GREEN_HEX_CODES = {"FF90EE90", "FF92D050", "FF00FF00"}
+COLOR_MAP = {
+    '#FFFFFF': 'White', '#FF0000': 'Red', '#00B050': 'Green', '#92D050': 'Light Green',
+    '#0070C0': 'Blue', '#00B0F0': 'Light Blue', '#FFFF00': 'Yellow', '#FFC000': 'Orange',
+    '#7030A0': 'Purple', '#D9D9D9': 'Gray', '#000000': 'Black', '#ED7D31': 'Dark Orange',
+    '#A9D08E': 'Pale Green', '#F4B084': 'Peach', '#FFD966': 'Pale Yellow'
+}
 
-# Define color fills
-orange_fill = PatternFill(start_color="FFA500", end_color="FFA500", fill_type="solid")
-green_fill = PatternFill(start_color="FF90EE90", end_color="FF90EE90", fill_type="solid")
+def rgb_to_hex_name(rgb):
+    if rgb is None:
+        return "No Color"
+    if rgb.type == "rgb":
+        hex_color = f"#{rgb.rgb[2:]}"
+        return COLOR_MAP.get(hex_color.upper(), "Custom Color")
+    elif rgb.type == "theme":
+        return f"Theme Color {rgb.theme} (Tint {rgb.tint})"
+    return "Unknown Format"
 
-KOSTENSTELLE_PATH = r"U:\\rlbnas1_rlb_bw_firw_z\\Controlling\\FC\\04 KORE\\02 BAB-Tabellen\\02 KST\\Kostenstellen.xlsx"
-OUTPUT_DIR = r"U:/newfolder/vjvl"
+def get_sheet_tab_colors(file_path):
+    wb = openpyxl.load_workbook(file_path, data_only=True)
+    sheet_colors = {}
+    for sheet_name in wb.sheetnames:
+        sheet = wb[sheet_name]
+        color = sheet.sheet_properties.tabColor
+        sheet_colors[sheet_name] = rgb_to_hex_name(color)
+    return sheet_colors
 
-def browse_file(entry):
-    path = filedialog.askopenfilename(filetypes=[("Excel files", "*.xlsx")])
-    if path:
-        entry.delete(0, tk.END)
-        entry.insert(0, path)
+def find_end_row(ws, sheet_name):
+    sheet_name_lower = sheet_name.lower()
+    for row in range(7, ws.max_row + 1):
+        cell = ws[f"A{row}"]
+        if cell.value and isinstance(cell.value, str) and cell.value.lower() == "summe" and cell.font.bold:
+            return row
+    for row in range(7, ws.max_row + 1):
+        cell = ws[f"A{row}"]
+        if cell.value and isinstance(cell.value, str) and cell.value.strip().lower() == sheet_name_lower:
+            return row
+    for row in range(7, ws.max_row + 1):
+        if ws[f"A{row}"].value in (None, ""):
+            return row - 1
+    return ws.max_row
 
-def get_column_a_colors(file_path, sheet_name='Kostenstellen'):
-    wb = openpyxl.load_workbook(file_path, data_only=False)
-    sheet = wb[sheet_name]
+def find_merged_veraenderung_columns(ws):
+    for row in [3, 4]:
+        for merged_range in ws.merged_cells.ranges:
+            if merged_range.min_row == row and merged_range.max_row == row:
+                cell_value = ws.cell(row=row, column=merged_range.min_col).value
+                if cell_value and "veränderung" in str(cell_value).lower():
+                    return (merged_range.min_col, merged_range.max_col)
+        for col in range(1, ws.max_column + 1):
+            cell = ws.cell(row=row, column=col)
+            if cell.value and "veränderung" in str(cell.value).lower():
+                return (col, col)
+    return None
 
-    column_a_colors = {}
-    green_i_lookup = {}
+def style_cell(cell):
+    cell.font = Font(size=16, bold=True)
+    cell.alignment = Alignment(horizontal="center")
+    hair_border = Border(left=Side(style='hair'), right=Side(style='hair'),
+                         top=Side(style='hair'), bottom=Side(style='hair'))
+    cell.border = hair_border
 
-    for row in sheet.iter_rows(min_row=2):
-        a_cell = row[0]
-        i_cell = row[8]
-        a_val = a_cell.value
-        i_val = i_cell.value
-        fill = a_cell.fill
+def apply_veraenderung_formulas(ws, ist_col, plan_col, vera_start_col, end_row):
+    diff_col = vera_start_col + 2
+    perc_col = vera_start_col + 3
 
-        if fill and fill.fill_type == "solid":
-            color = fill.start_color
-            color_hex = color.rgb if color.type == 'rgb' else color.index
+    for row in range(5, end_row + 1):
+        plan_letter = get_column_letter(plan_col)
+        ist_letter = get_column_letter(ist_col)
+        diff_letter = get_column_letter(diff_col)
+
+        ws.cell(row=row, column=diff_col).value = f"={plan_letter}{row}-{ist_letter}{row}"
+        ws.cell(row=row, column=perc_col).value = f"=IF({ist_letter}{row}=0,0,({diff_letter}{row}/{ist_letter}{row})*100)"
+
+def delete_columns_B_and_C(ws):
+    ws.delete_cols(2, 2)
+
+def process_excel_files(directory):
+    current_year = datetime.now().year
+
+    for file in os.listdir(directory):
+        if file.lower().startswith("kostenstelle") or not file.endswith((".xlsx", ".xlsm")):
+            continue
+        file_path = os.path.join(directory, file)
+        wb = openpyxl.load_workbook(file_path)
+        sheet_colors = get_sheet_tab_colors(file_path)
+
+        for sheet_name in wb.sheetnames:
+            tab_color = sheet_colors.get(sheet_name, "")
+            if "green" not in tab_color.lower():
+                continue
+
+            ws = wb[sheet_name]
+            delete_columns_B_and_C(ws)
+            end_row = find_end_row(ws, sheet_name)
+            vera_cols = find_merged_veraenderung_columns(ws)
+            if vera_cols is None:
+                continue
+
+            vera_start_col, vera_end_col = vera_cols
+            insert_col = vera_start_col
+
+            merged_to_restore = []
+            for merged_range in list(ws.merged_cells.ranges):
+                if merged_range.min_row == 3 and merged_range.max_row == 3:
+                    if merged_range.min_col == vera_start_col and merged_range.max_col == vera_end_col:
+                        merged_to_restore.append(merged_range)
+                        ws.unmerge_cells(str(merged_range))
+
+            existing_plan = ws.cell(row=3, column=vera_start_col - 2).value
+            existing_ist = ws.cell(row=3, column=vera_start_col - 1).value
+            if str(existing_plan).strip().lower() == "plan" and str(existing_ist).strip().lower() == "ist":
+                print(f"Skipping insertion in sheet '{sheet_name}' of file '{file}' as columns already exist.")
+                continue
+
+            ws.insert_cols(insert_col, 2)
+
+            for merged_range in merged_to_restore:
+                new_start = merged_range.min_col + 2
+                new_end = merged_range.max_col + 2
+                ws.merge_cells(start_row=3, start_column=new_start, end_row=3, end_column=new_end)
+
+            ws.cell(row=3, column=insert_col).value = "IST"
+            ws.cell(row=4, column=insert_col).value = f"{current_year}e"
+            style_cell(ws.cell(row=3, column=insert_col))
+            style_cell(ws.cell(row=4, column=insert_col))
+
+            ws.cell(row=3, column=insert_col + 1).value = "Plan"
+            ws.cell(row=4, column=insert_col + 1).value = current_year + 1
+            style_cell(ws.cell(row=3, column=insert_col + 1))
+            style_cell(ws.cell(row=4, column=insert_col + 1))
+
+            for row in range(5, end_row + 1):
+                ws.cell(row=row, column=insert_col).value = None
+                ws.cell(row=row, column=insert_col + 1).value = None
+                style_cell(ws.cell(row=row, column=insert_col))
+                style_cell(ws.cell(row=row, column=insert_col + 1))
+
+            apply_veraenderung_formulas(ws, ist_col=insert_col, plan_col=insert_col + 1,
+                                        vera_start_col=vera_start_col, end_row=end_row)
+
+            unhide_cols = {1, insert_col, insert_col + 1}
+            unhide_cols.update(range(vera_start_col + 2, vera_end_col + 4))
+
+            for col in range(1, ws.max_column + 1):
+                header3 = ws.cell(row=3, column=col).value
+                header4 = str(ws.cell(row=4, column=col).value)
+                if (header3 == "PLAN" and header4.replace("e", "").strip() == str(current_year)) or \
+                   (header3 == "IST" and header4.replace("e", "").strip() in [str(current_year), str(current_year - 1), str(current_year - 2)]):
+                    unhide_cols.add(col)
+                    if col != insert_col and col != insert_col + 1:
+                        ws.cell(row=4, column=col).value = header4.replace("e", "").strip()
+
+            for col in range(1, ws.max_column + 1):
+                col_letter = get_column_letter(col)
+                ws.column_dimensions[col_letter].hidden = col not in unhide_cols
+
+            for col in unhide_cols:
+                if col != 1:
+                    col_letter = get_column_letter(col)
+                    ws.column_dimensions[col_letter].width = 18
+
+        wb.save(file_path)
+
+
+def extract_valid_tokens(cell_value):
+    if not cell_value:
+        return []
+
+    tokens = []
+    # Split by + and - to preserve math operators
+    parts = re.split(r'([+\-])', cell_value)
+
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+        if part in ['+', '-']:
+            tokens.append(part)
         else:
-            color_hex = None
-
-        column_a_colors[a_val] = color_hex
-
-        if color_hex in GREEN_HEX_CODES:
-            green_i_lookup[a_val] = i_val
-
-    wb.close()
-    return column_a_colors, green_i_lookup
-
-def process_column_m(row_num, copy_ws, kostenstelle_data, column_a_colors, green_i_lookup, kostenstelle_ws):
-    h_val = copy_ws[f"H{row_num}"].value
-    vertriebsberichte = {
-        "Vertriebsbericht Nürnberg", "Vertriebsbericht Regensburg", "Vertriebsbericht Sondervolumen Markt SüdD",
-        "Vertriebsbericht Würzburg", "Vertriebsbericht München", "Vertriebsbericht Ulm",
-        "Vertriebsbericht Heilbronn", "Vertriebsbericht Stuttgart", "Vertriebsbericht Augsburg"
-    }
-
-    if h_val:
-        for row in kostenstelle_ws.iter_rows(min_row=2):
-            a_val = row[0].value
-            b_val = row[1].value
-            i_val = row[8].value
-            if h_val == a_val and b_val in vertriebsberichte:
-                copy_ws[f"M{row_num}"].value = i_val
-                return
-
-    if h_val not in kostenstelle_data:
+            # Further split on commas, semicolons, and newlines
+            subparts = re.split(r'[\n;,]+', part)
+            for sub in subparts:
+                # Check for the presence of #
+                if '#' in sub:
+                    sub = sub.split('#')[0]  # Ignore everything after #
+                cleaned = re.sub(r'\s+', '', sub)  # remove inner spaces
+                if cleaned and not cleaned.isalpha():
+                    tokens.append(cleaned)
+    return tokens
+def perform_custom_vlookup(current_ws, kosten_ws, end_row, current_year, sheet_name):
+    print(f"\n Processing VLOOKUP for sheet: {sheet_name}")
+    ist_col_index = None
+    for col in range(1, current_ws.max_column + 1):
+        h1 = current_ws.cell(row=3, column=col).value
+        h2 = str(current_ws.cell(row=4, column=col).value).replace("e", "").strip()
+        if h1 and h1.strip().upper() == "IST" and h2 == str(current_year - 1):
+            ist_col_index = col
+            print(f" Found IST column for year {current_year - 1} → Column {get_column_letter(col)} (Index {col})")
+            break
+    if ist_col_index is None:
+        print(" IST column with previous year not found.")
         return
 
-    k_data = kostenstelle_data[h_val]
-    f_val = k_data.get("F")
-    i_val = k_data.get("I")
+    for row in range(5, end_row + 1):
+        ab_value = str(current_ws.cell(row=row, column=28).value)
+        if not ab_value.strip():
+            continue
+        print(f"\n🖎 Row {row}, AB value: {ab_value}")
+        tokens = extract_valid_tokens(ab_value)
+        print(f" Tokens extracted: {tokens}")
 
-    if isinstance(f_val, str) and f_val.lower() == "aktiv":
-        copy_ws[f"M{row_num}"].value = "okay"
-    elif isinstance(f_val, str) and f_val.lower() == "inaktiv":
-        if i_val in green_i_lookup:
-            matched_i = green_i_lookup[i_val]
-            copy_ws[f"M{row_num}"].value = matched_i
-        else:
-            for row in kostenstelle_ws.iter_rows(min_row=2):
-                a_val = row[0].value
-                b_val = row[1].value
-                new_i_val = row[8].value
-                if a_val == i_val and b_val in vertriebsberichte:
-                    copy_ws[f"M{row_num}"].value = new_i_val
-                    return
-            copy_ws[f"M{row_num}"].value = i_val
+        expr = ""
+        for token in tokens:
+            if token in ['+', '-']:
+                expr += f" {token} "
+                continue
 
-def process_section(start_row, input_ws, copy_ws, kostenstelle_ws, column_a_colors, green_i_lookup, kostenstelle_data):
-    row = start_row
-    while input_ws[f"C{row}"].value:
-        row += 1
-    end_row = row - 1
+            match_value = None
+            for kosten_row in range(2, kosten_ws.max_row + 1):
+                key = str(kosten_ws.cell(row=kosten_row, column=1).value)
+                if token == key or token in key:
+                    match_value = kosten_ws.cell(row=kosten_row, column=4).value
+                    if match_value is None:
+                        print(f"   Matched '{token}' but D is None → using 0")
+                        match_value = 0
+                    print(f"   Matched '{token}' in row {kosten_row} → D: {match_value}")
+                    break
+            if match_value is None:
+                print(f"   No match found for '{token}', using 0")
+                match_value = 0
 
-    for r in range(start_row, end_row + 1):
-        c_val = str(input_ws[f"C{r}"].value)
-        if c_val.startswith("9"):
-            copy_ws[f"C{r}"].value = input_ws[f"C{r}"].value
-            copy_ws[f"D{r}"].value = input_ws[f"D{r}"].value
-            d_val = copy_ws[f"D{r}"].value
-            if d_val:
-                length = len(str(d_val).replace(" ", ""))
-                copy_ws[f"L{r}"].value = length
-                if length > 50:
-                    copy_ws[f"L{r}"].fill = orange_fill
-            process_column_m(r, copy_ws, kostenstelle_data, column_a_colors, green_i_lookup, kostenstelle_ws)
+            expr += str(int(match_value))
+
+        if not expr.strip():
+            print(f" No valid tokens to evaluate at row {row} — skipping.")
             continue
 
-        copy_ws[f"B{r}"].value = None
-        for col in ["C", "D", "E", "F", "H"]:
-            copy_ws[f"{col}{r}"].value = input_ws[f"{col}{r}"].value
-
-    for r in range(start_row, end_row + 1):
-        c_val = str(input_ws[f"C{r}"].value)
-        if c_val.startswith("9"):
-            continue
-
-        h_val = copy_ws[f"H{r}"].value
-        if h_val in kostenstelle_data:
-            k_data = kostenstelle_data[h_val]
-            b_val = k_data["E"]
-            copy_ws[f"B{r}"].value = b_val
-
-            if c_val.startswith(("705", "706", "707", "5")):
-                copy_ws[f"G{r}"].value = "V0" if b_val == 1001 else "U0" if b_val == 1002 else None
-            elif c_val.startswith(("704", "6")):
-                copy_ws[f"G{r}"].value = "A0" if b_val == 1001 else "D0" if b_val == 1002 else None
-
-            d_val = copy_ws[f"D{r}"].value
-            if d_val:
-                length = len(str(d_val).replace(" ", ""))
-                copy_ws[f"L{r}"].value = length
-                if length > 50:
-                    copy_ws[f"L{r}"].fill = orange_fill
-
-    for r in range(start_row, end_row + 1):
-        process_column_m(r, copy_ws, kostenstelle_data, column_a_colors, green_i_lookup, kostenstelle_ws)
-
-    for r in range(start_row, end_row + 1):
-        m_cell = copy_ws[f"M{r}"]
         try:
-            if isinstance(m_cell.value, (int, float)):
-                m_cell.fill = orange_fill
-        except:
+            result = eval(expr)
+            print(f" Final Expression: {expr} = {result}")
+        except Exception as e:
+            print(f" Error evaluating expression '{expr}': {e}")
+            result = 0
+
+        #  Write to the IST column for current_year - 1, if not merged
+        cell = current_ws.cell(row=row, column=ist_col_index)
+        if isinstance(cell, openpyxl.cell.cell.MergedCell):
+            print(f" Cannot write to merged cell at {get_column_letter(ist_col_index)}{row} — skipping.")
+        else:
+            if result >= 1000:
+                cell.value = round(result / 1000, 3)  # Write the value in thousands with three decimal places
+            else:
+                cell.value = round(result)  # Write the value as is if less than 1000
+            print(f" Value {cell.value} written to {get_column_letter(ist_col_index)}{row}")
+
+def post_processing_with_vlookup(directory):
+    kosten_file = None
+    for file in os.listdir(directory):
+        if file.lower().startswith("kostenstelle") and file.endswith((".xlsx", ".xlsm")):
+            kosten_file = os.path.join(directory, file)
+            break
+    if not kosten_file:
+        print(" Kostenstelle file not found.")
+        return
+
+    print(f"\n Kostenstelle file found: {os.path.basename(kosten_file)}")
+    kosten_wb = openpyxl.load_workbook(kosten_file, data_only=True)
+    kosten_ws = kosten_wb.active
+
+    for file in os.listdir(directory):
+        if file.lower().startswith("kostenstelle") or not file.endswith((".xlsx", ".xlsm")):
             continue
-
-    for r in range(start_row, end_row + 1):
-        c_val = str(input_ws[f"C{r}"].value)
-        if c_val.startswith("9"):
-            continue
-        g_val = copy_ws[f"G{r}"].value
-        if g_val in ["A0", "D0"]:
-            h_cell_val = copy_ws[f"H{r}"].value
-            if h_cell_val:
-                last_digits = str(h_cell_val)[-3:].zfill(3)
-                copy_ws[f"K{r}"].value = int("100000" + last_digits)
-                copy_ws[f"H{r}"].value = None
-
-def process_files(input_path, user_start_row=None):
-    filename = os.path.basename(input_path)
-    filename_no_ext = os.path.splitext(filename)[0]
-    output_path = os.path.join(OUTPUT_DIR, f"{filename_no_ext} Neu.xlsx")
-
-    input_wb = openpyxl.load_workbook(input_path)
-    input_ws = input_wb.active
-    input_wb.save(output_path)
-
-    copy_wb = openpyxl.load_workbook(output_path)
-    copy_ws = copy_wb.active
-
-    kostenstelle_wb = openpyxl.load_workbook(KOSTENSTELLE_PATH, data_only=True)
-    kostenstelle_ws = kostenstelle_wb.active
-
-    kostenstelle_data = {}
-    for row in kostenstelle_ws.iter_rows(min_row=2):
-        a_val = row[0].value
-        kostenstelle_data[a_val] = {
-            "E": row[4].value,
-            "F": row[5].value,
-            "I": row[8].value
-        }
-
-    column_a_colors, green_i_lookup = get_column_a_colors(KOSTENSTELLE_PATH)
-
-    process_section(16, input_ws, copy_ws, kostenstelle_ws, column_a_colors, green_i_lookup, kostenstelle_data)
-
-    row = 16
-    while input_ws[f"C{row}"].value:
-        row += 1
-    end_row = row - 1
-
-    sum_e = sum(copy_ws[f"E{r}"].value for r in range(16, end_row + 1) if copy_ws[f"E{r}"].value is not None)
-    sum_f = sum(copy_ws[f"F{r}"].value for r in range(16, end_row + 1) if copy_ws[f"F{r}"].value is not None)
-
-    copy_ws.cell(row=12, column=5).value = sum_e
-    copy_ws.cell(row=12, column=6).value = sum_f
-    copy_ws.cell(row=12, column=4).value = '=E12-F12'
-
-    copy_ws.cell(row=15, column=13).value = "Kontrolle alte KST"
-    copy_ws.cell(row=15, column=12).value = "Kontrolle Länge Positionstext"
-
-    if user_start_row and user_start_row != 16:
-        process_section(user_start_row, input_ws, copy_ws, kostenstelle_ws, column_a_colors, green_i_lookup, kostenstelle_data)
-
-    copy_wb.save(output_path)
-    copy_wb.close()
-    kostenstelle_wb.close()
-    input_wb.close()
-
-    messagebox.showinfo("Success", f"File processed and saved as {output_path}")
+        file_path = os.path.join(directory, file)
+        print(f"\n Processing file: {file}")
+        wb = openpyxl.load_workbook(file_path)
+        for sheet in wb.sheetnames:
+            ws = wb[sheet]
+            tab_color = rgb_to_hex_name(ws.sheet_properties.tabColor)
+            if ws.sheet_properties.tabColor is None or "green" not in tab_color.lower():
+                continue
+            end_row = find_end_row(ws, sheet)
+            perform_custom_vlookup(ws, kosten_ws, end_row, datetime.now().year, sheet)
+        wb.save(file_path)
+        print(f" File saved: {file}")
 
 def main():
-    root = tk.Tk()
-    root.title("Excel Processing GUI")
-
-    tk.Label(root, text="Input Datei").grid(row=0, column=0, padx=10, pady=10)
-    input_entry = tk.Entry(root, width=50)
-    input_entry.grid(row=0, column=1)
-    tk.Button(root, text="Browse", command=lambda: browse_file(input_entry)).grid(row=0, column=2)
-
-    tk.Label(root, text="Zusätzliche Zeile (Optional)").grid(row=1, column=0, padx=10, pady=10)
-    row_entry = tk.Entry(root, width=10)
-    row_entry.grid(row=1, column=1, sticky='w')
-
-    def run_process():
-        input_path = input_entry.get()
-        row_val = row_entry.get()
-
-        if not input_path:
-            messagebox.showerror("Error", "Input file is required!")
-            return
-
-        try:
-            custom_row = int(row_val) if row_val.strip() else None
-        except ValueError:
-            messagebox.showerror("Error", "Please enter a valid number for the row.")
-            return
-
-        process_files(input_path, custom_row)
-
-    tk.Button(root, text="Process Files", command=run_process, bg="lightblue").grid(row=2, column=1, pady=20)
-    root.mainloop()
+    root = Tk()
+    root.withdraw()
+    selected_directory = filedialog.askdirectory(title="Select Directory with Excel Files")
+    if selected_directory:
+        process_excel_files(selected_directory)
+        post_processing_with_vlookup(selected_directory)
 
 if __name__ == "__main__":
     main()
