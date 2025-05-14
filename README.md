@@ -55,21 +55,28 @@ def perform_custom_vlookup(current_ws, kosten_ws, end_row, current_year, sheet_n
             expr_h += str(int(val_h))
             expr_i += str(int(val_i))
 
+        # Helper to format values for specific columns (IST and PLAN)
+        def format_value_for_columns(value, col_index):
+            # Apply formatting for IST and PLAN columns
+            if col_index in [ist_prev_col, ist_curr_col, plan_next_col]:
+                if value >= 1000:
+                    return f"{value / 1000:.3f}"  # Convert to format like 7.171
+                else:
+                    return str(int(value))  # Round and return as integer
+            return str(value)  # Return the value as is for other columns
+
         # Helper to evaluate and write to Excel
         def evaluate_and_write(expr, col_index, label):
             if not expr.strip() or not col_index:
                 return
             try:
                 result = eval(expr)
-                if result >= 1000:
-                    final_val = float(f"{result / 1000:.3f}")  # Force float with 3 decimals
-                else:
-                    final_val = int(round(result))
-                print(f" Final Expression ({label}): {expr} = {final_val}")
+                formatted_result = format_value_for_columns(result, col_index)
+                print(f" Final Expression ({label}): {expr} = {formatted_result}")
                 cell = current_ws.cell(row=row, column=col_index)
                 if not isinstance(cell, openpyxl.cell.cell.MergedCell):
-                    cell.value = final_val
-                    print(f"  → Value {final_val} written to {get_column_letter(col_index)}{row}")
+                    cell.value = formatted_result
+                    print(f"  → Value {formatted_result} written to {get_column_letter(col_index)}{row}")
                 else:
                     print(f"  → Cannot write to merged cell at {get_column_letter(col_index)}{row}")
             except Exception as e:
