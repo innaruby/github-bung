@@ -1,32 +1,41 @@
 from openpyxl.utils import get_column_letter
+import openpyxl
 
-def process_sachaufwand_links(wb):
-    # Step 1: Locate 'Sachaufwand' sheet (case-insensitive)
+def process_sachaufwand_links(wb, file_path):
+    # Step 1: Reload workbook without data_only to access formulas
+    wb_with_formulas = openpyxl.load_workbook(file_path, data_only=False)
+
+    # Step 2: Get 'Sachaufwand' sheet (case-insensitive) from both workbooks
     sach_sheet = None
+    sach_sheet_formula = None
     for sheet in wb.sheetnames:
         if sheet.lower() == "sachaufwand":
             sach_sheet = wb[sheet]
             break
+    for sheet in wb_with_formulas.sheetnames:
+        if sheet.lower() == "sachaufwand":
+            sach_sheet_formula = wb_with_formulas[sheet]
+            break
 
-    if not sach_sheet:
-        print("❌ No 'Sachaufwand' sheet found.")
+    if not sach_sheet or not sach_sheet_formula:
+        print("❌ 'Sachaufwand' sheet not found in one or both workbooks.")
         return
 
     print("\n🔍 Starting process_sachaufwand_links for 'Sachaufwand'...")
 
-    # Step 2: Clear all formulas in Sachaufwand
+    # Step 3: Clear formulas using the version without data_only
     formula_count = 0
-    for row in sach_sheet.iter_rows():
+    for row in sach_sheet_formula.iter_rows():
         for cell in row:
             if isinstance(cell.value, str) and cell.value.strip().startswith("="):
-                cell.value = None
+                sach_sheet.cell(row=cell.row, column=cell.column).value = None
                 formula_count += 1
     print(f"🧹 Cleared {formula_count} formulas from 'Sachaufwand'.")
 
-    # Step 3: Prepare lowercase sheet map
+    # Step 4: Prepare lowercase sheet map
     sheet_map = {s.lower(): s for s in wb.sheetnames}
 
-    # Step 4: Find end row in Sachaufwand
+    # Step 5: Find end row in Sachaufwand
     try:
         end_row = find_end_row(sach_sheet, "Sachaufwand")
         print(f"✅ Detected end row in 'Sachaufwand': {end_row}")
@@ -34,7 +43,7 @@ def process_sachaufwand_links(wb):
         print(f"❌ Error determining end row in 'Sachaufwand': {e}")
         return
 
-    # Step 5: Loop through visible rows in Sachaufwand
+    # Step 6: Loop through visible rows
     for row in range(5, end_row + 1):
         if sach_sheet.row_dimensions[row].hidden:
             print(f"🚫 Row {row} in 'Sachaufwand' is hidden. Skipping.")
@@ -54,7 +63,7 @@ def process_sachaufwand_links(wb):
         matched_sheet = wb[matched_sheet_name]
         print(f"\n🔗 Row {row}: Linking to sheet '{matched_sheet_name}'...")
 
-        # Step 6: Find bold 'Summe' row
+        # Step 7: Find bold 'Summe' row
         summe_row = None
         for r in range(5, matched_sheet.max_row + 1):
             cell = matched_sheet.cell(row=r, column=1)
@@ -67,7 +76,7 @@ def process_sachaufwand_links(wb):
             continue
         print(f"✅ Found 'Summe' at row {summe_row} in '{matched_sheet_name}'.")
 
-        # Step 7: Identify last visible column in matched sheet
+        # Step 8: Identify visible source columns
         visible_source_cols = []
         for col in range(2, matched_sheet.max_column + 1):
             col_letter = get_column_letter(col)
@@ -81,14 +90,14 @@ def process_sachaufwand_links(wb):
         print(f"✅ Last visible column in '{matched_sheet_name}': {get_column_letter(visible_source_cols[-1])}")
         print(f"👁️ Visible source columns: {[get_column_letter(c) for c in visible_source_cols]}")
 
-        # Step 8: Collect values from Summe row in visible columns
+        # Step 9: Collect data from Summe row
         data_to_copy = []
         for col in visible_source_cols:
             val = matched_sheet.cell(row=summe_row, column=col).value
             data_to_copy.append((col, val))
         print(f"📦 Collected {len(data_to_copy)} values from 'Summe' row.")
 
-        # Step 9: Identify last visible column in Sachaufwand
+        # Step 10: Identify visible target columns in Sachaufwand
         visible_target_cols = []
         for col in range(2, sach_sheet.max_column + 1):
             col_letter = get_column_letter(col)
@@ -96,13 +105,13 @@ def process_sachaufwand_links(wb):
                 visible_target_cols.append(col)
 
         if not visible_target_cols:
-            print(f"❌ No visible target columns found in 'Sachaufwand'. Skipping paste.")
+            print(f"❌ No visible columns in 'Sachaufwand'. Skipping paste.")
             continue
 
         print(f"✅ Last visible column in 'Sachaufwand': {get_column_letter(visible_target_cols[-1])}")
         print(f"👁️ Visible target columns: {[get_column_letter(c) for c in visible_target_cols]}")
 
-        # Step 10: Paste into Sachaufwand from B to last visible column
+        # Step 11: Paste values into 'Sachaufwand'
         pasted_count = 0
         copy_index = 0
         for col in visible_target_cols:
@@ -114,6 +123,6 @@ def process_sachaufwand_links(wb):
                 print(f"✅ Pasted '{value}' to {col_letter}{row}")
                 copy_index += 1
             else:
-                print(f"⚠️ No more source values to paste at {col_letter}{row}.")
+                print(f"⚠️ No more values to paste at {col_letter}{row}.")
 
-        print(f"✅ Completed paste of {pasted_count} values into row {row} of 'Sachaufwand'.")
+        print(f"✅ Completed pasting {pasted_count} values into row {row} of 'Sachaufwand'.")
