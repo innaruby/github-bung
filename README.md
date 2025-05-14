@@ -1,3 +1,5 @@
+from openpyxl.utils import get_column_letter
+
 def perform_custom_vlookup(current_ws, kosten_ws, end_row, current_year, sheet_name):
     print(f"\n Processing VLOOKUP for sheet: {sheet_name}")
 
@@ -11,7 +13,7 @@ def perform_custom_vlookup(current_ws, kosten_ws, end_row, current_year, sheet_n
         print(f" Column not found → {header_1} {header_2}")
         return None
 
-    # Find target columns
+    # Locate target columns
     ist_prev_col = find_column("IST", str(current_year - 1))
     ist_curr_col = find_column("IST", str(current_year))
     plan_next_col = find_column("PLAN", str(current_year + 1))
@@ -53,18 +55,17 @@ def perform_custom_vlookup(current_ws, kosten_ws, end_row, current_year, sheet_n
             expr_h += str(int(val_h))
             expr_i += str(int(val_i))
 
-        # Evaluate and write results
+        # Helper to evaluate and write to Excel
         def evaluate_and_write(expr, col_index, label):
             if not expr.strip() or not col_index:
                 return
             try:
                 result = eval(expr)
-                scaled = result / 1000
-                if scaled >= 1000:
-                    final_val = round(scaled, 3)
+                if result >= 1000:
+                    final_val = round(result / 1000, 3)
                 else:
-                    final_val = round(scaled)
-                print(f" Final Expression ({label}): {expr} = {result} → {final_val}")
+                    final_val = round(result)
+                print(f" Final Expression ({label}): {expr} = {final_val}")
                 cell = current_ws.cell(row=row, column=col_index)
                 if not isinstance(cell, openpyxl.cell.cell.MergedCell):
                     cell.value = final_val
