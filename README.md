@@ -1,4 +1,1 @@
-file_path = os.path.join(directory, file)  # already defined in your loop
-wb = openpyxl.load_workbook(file_path)
-process_sachaufwand_links(wb, file_path)
-wb.save(file_path)
+⚠️ [Sheet: sachaufwand] Failed to eval formula in Q5: =[3]bürobetriebskosten!R10 → invalid syntax (<sttring>, line 1)
