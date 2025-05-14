@@ -1,7 +1,7 @@
 from openpyxl.utils import get_column_letter
 
 def process_sachaufwand_links(wb):
-    # Step 1: Locate 'Sachaufwand' sheet
+    # Step 1: Locate 'Sachaufwand' sheet (case-insensitive)
     sach_sheet = None
     for sheet in wb.sheetnames:
         if sheet.lower() == "sachaufwand":
@@ -23,7 +23,7 @@ def process_sachaufwand_links(wb):
                 formula_count += 1
     print(f"🧹 Cleared {formula_count} formulas from 'Sachaufwand'.")
 
-    # Step 3: Prepare lowercase sheet name map
+    # Step 3: Prepare lowercase sheet map
     sheet_map = {s.lower(): s for s in wb.sheetnames}
 
     # Step 4: Find end row in Sachaufwand
@@ -68,19 +68,17 @@ def process_sachaufwand_links(wb):
         print(f"✅ Found 'Summe' at row {summe_row} in '{matched_sheet_name}'.")
 
         # Step 7: Identify last visible column in matched sheet
-        last_visible_col = None
         visible_source_cols = []
         for col in range(2, matched_sheet.max_column + 1):
             col_letter = get_column_letter(col)
             if not matched_sheet.column_dimensions[col_letter].hidden:
                 visible_source_cols.append(col)
-                last_visible_col = col
 
         if not visible_source_cols:
             print(f"⚠️ Row {row}: No visible columns in source sheet '{matched_sheet_name}'.")
             continue
 
-        print(f"✅ Last visible column in '{matched_sheet_name}' is {last_visible_col} ({get_column_letter(last_visible_col)})")
+        print(f"✅ Last visible column in '{matched_sheet_name}': {get_column_letter(visible_source_cols[-1])}")
         print(f"👁️ Visible source columns: {[get_column_letter(c) for c in visible_source_cols]}")
 
         # Step 8: Collect values from Summe row in visible columns
@@ -90,25 +88,32 @@ def process_sachaufwand_links(wb):
             data_to_copy.append((col, val))
         print(f"📦 Collected {len(data_to_copy)} values from 'Summe' row.")
 
-        # Step 9: Debug visible columns in Sachaufwand before pasting
-        print(f"👁️ Visible columns in 'Sachaufwand' from B:")
-        for i in range(2, 2 + len(data_to_copy)):
-            col_letter = get_column_letter(i)
-            hidden = sach_sheet.column_dimensions[col_letter].hidden
-            print(f"   {col_letter} → {'HIDDEN' if hidden else 'VISIBLE'}")
+        # Step 9: Identify last visible column in Sachaufwand
+        visible_target_cols = []
+        for col in range(2, sach_sheet.max_column + 1):
+            col_letter = get_column_letter(col)
+            if not sach_sheet.column_dimensions[col_letter].hidden:
+                visible_target_cols.append(col)
 
-        # Step 10: Paste into Sachaufwand row only into visible columns
-        paste_col_idx = 2
+        if not visible_target_cols:
+            print(f"❌ No visible target columns found in 'Sachaufwand'. Skipping paste.")
+            continue
+
+        print(f"✅ Last visible column in 'Sachaufwand': {get_column_letter(visible_target_cols[-1])}")
+        print(f"👁️ Visible target columns: {[get_column_letter(c) for c in visible_target_cols]}")
+
+        # Step 10: Paste into Sachaufwand from B to last visible column
         pasted_count = 0
-        for _, val in data_to_copy:
-            col_letter = get_column_letter(paste_col_idx)
-            is_hidden = sach_sheet.column_dimensions[col_letter].hidden
-            if not is_hidden:
-                sach_sheet.cell(row=row, column=paste_col_idx).value = val
+        copy_index = 0
+        for col in visible_target_cols:
+            col_letter = get_column_letter(col)
+            if copy_index < len(data_to_copy):
+                value = data_to_copy[copy_index][1]
+                sach_sheet.cell(row=row, column=col).value = value
                 pasted_count += 1
-                print(f"✅ Pasted '{val}' into 'Sachaufwand'! Cell: {col_letter}{row}")
+                print(f"✅ Pasted '{value}' to {col_letter}{row}")
+                copy_index += 1
             else:
-                print(f"🚫 Skipped hidden column {col_letter}{row}")
-            paste_col_idx += 1
+                print(f"⚠️ No more source values to paste at {col_letter}{row}.")
 
-        print(f"✅ Pasted {pasted_count} values into row {row} of 'Sachaufwand'.")
+        print(f"✅ Completed paste of {pasted_count} values into row {row} of 'Sachaufwand'.")
