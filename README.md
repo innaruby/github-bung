@@ -44,7 +44,14 @@ def process_sachaufwand_links(wb, file_path):
     # Step 4: Prepare lowercase sheet name map
     sheet_map = {s.lower(): s for s in wb.sheetnames}
 
-    # Step 5: Find end row in Sachaufwand
+    # Step 5: Define function to find end row
+    def find_end_row(sheet, sheet_name):
+        for row in range(sheet.max_row, 0, -1):
+            if any(sheet.cell(row=row, column=col).value is not None for col in range(1, sheet.max_column + 1)):
+                return row
+        raise ValueError(f"End row not found in sheet {sheet_name}")
+
+    # Step 6: Find end row in Sachaufwand
     try:
         end_row = find_end_row(sach_sheet, "Sachaufwand")
         print(f"✅ Detected end row in 'Sachaufwand': {end_row}")
@@ -52,27 +59,23 @@ def process_sachaufwand_links(wb, file_path):
         print(f"❌ Error determining end row in 'Sachaufwand': {e}")
         return
 
-    # Step 6: Loop through each visible row
+    # Step 7: Loop through each visible row
     for row in range(5, end_row + 1):
         if sach_sheet.row_dimensions[row].hidden:
-            print(f"🚫 Row {row} in 'Sachaufwand' is hidden. Skipping.")
             continue
 
         ref_value = sach_sheet.cell(row=row, column=1).value
         if not ref_value or not isinstance(ref_value, str):
-            print(f"⚠️ Row {row}: Empty or invalid value in column A.")
             continue
 
         ref_key = ref_value.strip().lower()
         matched_sheet_name = sheet_map.get(ref_key)
         if not matched_sheet_name:
-            print(f"❌ Row {row}: No matching sheet found for '{ref_value}'.")
             continue
 
         matched_sheet = wb[matched_sheet_name]
-        print(f"\n🔗 Row {row}: Linking to sheet '{matched_sheet_name}'...")
 
-        # Step 7: Find bold 'Summe' row
+        # Step 8: Find bold 'Summe' row
         summe_row = None
         for r in range(5, matched_sheet.max_row + 1):
             cell = matched_sheet.cell(row=r, column=1)
@@ -81,57 +84,75 @@ def process_sachaufwand_links(wb, file_path):
                 break
 
         if not summe_row:
-            print(f"⚠️ Row {row}: No bold 'Summe' row found in '{matched_sheet_name}'.")
             continue
-        print(f"✅ Found 'Summe' at row {summe_row} in '{matched_sheet_name}'.")
 
-        # Step 8: Identify visible source columns
-        visible_source_cols = []
-        for col in range(2, matched_sheet.max_column + 1):
-            col_letter = get_column_letter(col)
-            if not matched_sheet.column_dimensions[col_letter].hidden:
-                visible_source_cols.append(col)
+        # Step 9: Identify visible source columns
+        visible_source_cols = [
+            col for col in range(2, matched_sheet.max_column + 1)
+            if not matched_sheet.column_dimensions[get_column_letter(col)].hidden
+        ]
 
         if not visible_source_cols:
-            print(f"⚠️ Row {row}: No visible columns in source sheet '{matched_sheet_name}'.")
             continue
 
-        print(f"✅ Last visible column in '{matched_sheet_name}': {get_column_letter(visible_source_cols[-1])}")
-        print(f"👁️ Visible source columns: {[get_column_letter(c) for c in visible_source_cols]}")
-
-        # Step 9: Collect values from Summe row
+        # Step 10: Collect values from Summe row
         data_to_copy = []
         for col in visible_source_cols:
             val = matched_sheet.cell(row=summe_row, column=col).value
             data_to_copy.append((col, val))
-        print(f"📦 Collected {len(data_to_copy)} values from 'Summe' row.")
 
-        # Step 10: Identify visible target columns in Sachaufwand
-        visible_target_cols = []
-        for col in range(2, sach_sheet.max_column + 1):
-            col_letter = get_column_letter(col)
-            if not sach_sheet.column_dimensions[col_letter].hidden:
-                visible_target_cols.append(col)
+        # Step 11: Identify visible target columns in Sachaufwand
+        visible_target_cols = [
+            col for col in range(2, sach_sheet.max_column + 1)
+            if not sach_sheet.column_dimensions[get_column_letter(col)].hidden
+        ]
 
-        if not visible_target_cols:
-            print(f"❌ No visible target columns in 'Sachaufwand'. Skipping paste.")
-            continue
-
-        print(f"✅ Last visible column in 'Sachaufwand': {get_column_letter(visible_target_cols[-1])}")
-        print(f"👁️ Visible target columns: {[get_column_letter(c) for c in visible_target_cols]}")
-
-        # Step 11: Paste values into target row
-        pasted_count = 0
-        copy_index = 0
-        for col in visible_target_cols:
-            col_letter = get_column_letter(col)
-            if copy_index < len(data_to_copy):
-                value = data_to_copy[copy_index][1]
+        # Step 12: Paste values into target row
+        for i, col in enumerate(visible_target_cols):
+            if i < len(data_to_copy):
+                value = data_to_copy[i][1]
                 sach_sheet.cell(row=row, column=col).value = value
-                pasted_count += 1
-                print(f"✅ Pasted '{value}' to {col_letter}{row}")
-                copy_index += 1
-            else:
-                print(f"⚠️ No more values to paste at {col_letter}{row}.")
 
-        print(f"✅ Completed pasting {pasted_count} values into row {row} of 'Sachaufwand'.")
+    # -----------------------
+    # ✨ Additional Step: Zwischensumme and Summe Aggregation
+    # -----------------------
+    zwischensumme_row = None
+    final_summe_row = None
+
+    for row in range(5, end_row + 1):
+        cell = sach_sheet.cell(row=row, column=1)
+        if cell.value and isinstance(cell.value, str):
+            text = str(cell.value).lower()
+            if "zwischensumme" in text and cell.font.bold and not zwischensumme_row:
+                zwischensumme_row = row
+            elif "summe" in text and cell.font.bold and not final_summe_row:
+                final_summe_row = row
+
+    # Get visible columns B+
+    visible_cols = [
+        col for col in range(2, sach_sheet.max_column + 1)
+        if not sach_sheet.column_dimensions[get_column_letter(col)].hidden
+    ]
+
+    def sum_visible_rows(start_row, end_row):
+        col_sums = {col: 0 for col in visible_cols}
+        for row in range(start_row, end_row):
+            if sach_sheet.row_dimensions[row].hidden:
+                continue
+            for col in visible_cols:
+                val = sach_sheet.cell(row=row, column=col).value
+                if isinstance(val, (int, float)):
+                    col_sums[col] += val
+        return col_sums
+
+    if zwischensumme_row:
+        zw_sum = sum_visible_rows(5, zwischensumme_row)
+        for col, value in zw_sum.items():
+            sach_sheet.cell(row=zwischensumme_row, column=col).value = value
+        print(f"✅ Wrote Zwischensumme totals at row {zwischensumme_row}.")
+
+    if final_summe_row and zwischensumme_row:
+        summe_sum = sum_visible_rows(zwischensumme_row, final_summe_row)
+        for col, value in summe_sum.items():
+            sach_sheet.cell(row=final_summe_row, column=col).value = value
+        print(f"✅ Wrote Summe totals at row {final_summe_row}.")
