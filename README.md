@@ -1,155 +1,247 @@
-from openpyxl.utils import get_column_letter
+import tkinter as tk
+from tkinter import filedialog, messagebox
+import os
 import openpyxl
+from openpyxl.styles import PatternFill
 
-def process_sachaufwand_links(wb, file_path):
-    # Step 1: Reload workbook WITHOUT data_only to access formulas
-    wb_with_formulas = openpyxl.load_workbook(file_path, data_only=False)
+# Acceptable green fill variations
+GREEN_HEX_CODES = {"FF90EE90", "FF92D050", "FF00FF00"}
 
-    # Step 2: Get 'Sachaufwand' sheet (case-insensitive) from both workbooks
-    sach_sheet = None
-    sach_sheet_formula = None
-    for sheet in wb.sheetnames:
-        if sheet.lower() == "sachaufwand":
-            sach_sheet = wb[sheet]
-            break
-    for sheet in wb_with_formulas.sheetnames:
-        if sheet.lower() == "sachaufwand":
-            sach_sheet_formula = wb_with_formulas[sheet]
-            break
+# Define color fills
+orange_fill = PatternFill(start_color="FFA500", end_color="FFA500", fill_type="solid")
+green_fill = PatternFill(start_color="FF90EE90", end_color="FF90EE90", fill_type="solid")
 
-    if not sach_sheet or not sach_sheet_formula:
-        print("❌ 'Sachaufwand' sheet not found in one or both workbooks.")
+KOSTENSTELLE_PATH = r"U:Kostenstellen.xlsx"
+OUTPUT_DIR = r"U:\Einspielungen"
+
+def browse_file(entry):
+    path = filedialog.askopenfilename(filetypes=[("Excel files", "*.xlsx")])
+    if path:
+        entry.delete(0, tk.END)
+        entry.insert(0, path)
+
+def get_column_a_colors(file_path, sheet_name='Kostenstellen'):
+    wb = openpyxl.load_workbook(file_path, data_only=False)
+    sheet = wb[sheet_name]
+
+    column_a_colors = {}
+    green_i_lookup = {}
+
+    for row in sheet.iter_rows(min_row=2):
+        a_cell = row[0]
+        i_cell = row[8]
+        a_val = a_cell.value
+        i_val = i_cell.value
+        fill = a_cell.fill
+
+        if fill and fill.fill_type == "solid":
+            color = fill.start_color
+            color_hex = color.rgb if color.type == 'rgb' else color.index
+        else:
+            color_hex = None
+
+        column_a_colors[a_val] = color_hex
+
+        if color_hex in GREEN_HEX_CODES:
+            green_i_lookup[a_val] = i_val
+
+    wb.close()
+    return column_a_colors, green_i_lookup
+
+def process_column_m(row_num, copy_ws, kostenstelle_data, column_a_colors, green_i_lookup, kostenstelle_ws):
+    h_val = copy_ws[f"H{row_num}"].value
+    vertriebsberichte = {
+        "Vertriebsbericht Nürnberg", "Vertriebsbericht Regensburg", "Vertriebsbericht Sondervolumen Markt SüdD",
+        "Vertriebsbericht Würzburg", "Vertriebsbericht München", "Vertriebsbericht Ulm",
+        "Vertriebsbericht Heilbronn", "Vertriebsbericht Stuttgart", "Vertriebsbericht Augsburg"
+    }
+
+    if h_val:
+        for row in kostenstelle_ws.iter_rows(min_row=2):
+            a_val = row[0].value
+            b_val = row[1].value
+            i_val = row[8].value
+            if h_val == a_val and b_val in vertriebsberichte:
+                copy_ws[f"M{row_num}"].value = i_val
+                return
+
+    if h_val not in kostenstelle_data:
         return
 
-    print("\n🔍 Starting process_sachaufwand_links for 'Sachaufwand'...")
+    k_data = kostenstelle_data[h_val]
+    f_val = k_data.get("F")
+    i_val = k_data.get("I")
 
-    # Step 3: Clear values and formulas from row 5 onward, columns B+
-    cleared_cells = 0
-    max_row = sach_sheet_formula.max_row
-    max_col = sach_sheet_formula.max_column
+    if isinstance(f_val, str) and f_val.lower() == "aktiv":
+        copy_ws[f"M{row_num}"].value = "okay"
+    elif isinstance(f_val, str) and f_val.lower() == "inaktiv":
+        if i_val in green_i_lookup:
+            matched_i = green_i_lookup[i_val]
+            copy_ws[f"M{row_num}"].value = matched_i
+        else:
+            for row in kostenstelle_ws.iter_rows(min_row=2):
+                a_val = row[0].value
+                b_val = row[1].value
+                new_i_val = row[8].value
+                if a_val == i_val and b_val in vertriebsberichte:
+                    copy_ws[f"M{row_num}"].value = new_i_val
+                    return
+            copy_ws[f"M{row_num}"].value = i_val
 
-    for row in range(5, max_row + 1):
-        for col in range(2, max_col + 1):  # Start from column B
-            cell_formula = sach_sheet_formula.cell(row=row, column=col)
-            cell_target = sach_sheet.cell(row=row, column=col)
-            if isinstance(cell_formula.value, str) and cell_formula.value.strip().startswith("="):
-                cell_target.value = None
-                cleared_cells += 1
-            elif cell_target.value is not None:
-                cell_target.value = None
-                cleared_cells += 1
+def process_section(start_row, input_ws, copy_ws, kostenstelle_ws, column_a_colors, green_i_lookup, kostenstelle_data):
+    row = start_row
+    while input_ws[f"C{row}"].value:
+        row += 1
+    end_row = row - 1
 
-    print(f"🧹 Cleared {cleared_cells} cells from 'Sachaufwand' (excluding headers and column A).")
-
-    # Step 4: Prepare lowercase sheet name map
-    sheet_map = {s.lower(): s for s in wb.sheetnames}
-
-    # Step 5: Define function to find end row
-    def find_end_row(sheet):
-        for row in range(sheet.max_row, 0, -1):
-            if any(sheet.cell(row=row, column=col).value is not None for col in range(1, sheet.max_column + 1)):
-                return row
-        return sheet.max_row
-
-    # Step 6: Find end row in Sachaufwand
-    end_row = find_end_row(sach_sheet)
-    print(f"✅ Detected end row in 'Sachaufwand': {end_row}")
-
-    # Step 7: Loop through each visible row
-    for row in range(5, end_row + 1):
-        if sach_sheet.row_dimensions[row].hidden:
+    for r in range(start_row, end_row + 1):
+        c_val = str(input_ws[f"C{r}"].value)
+        if c_val.startswith("9"):
+            copy_ws[f"C{r}"].value = input_ws[f"C{r}"].value
+            copy_ws[f"D{r}"].value = input_ws[f"D{r}"].value
+            d_val = copy_ws[f"D{r}"].value
+            if d_val:
+                length = len(str(d_val).replace(" ", ""))
+                copy_ws[f"L{r}"].value = length
+                if length > 50:
+                    copy_ws[f"L{r}"].fill = orange_fill
+            process_column_m(r, copy_ws, kostenstelle_data, column_a_colors, green_i_lookup, kostenstelle_ws)
             continue
 
-        ref_value = sach_sheet.cell(row=row, column=1).value
-        if not ref_value or not isinstance(ref_value, str):
+        copy_ws[f"B{r}"].value = None
+        for col in ["C", "D", "E", "F", "H"]:
+            copy_ws[f"{col}{r}"].value = input_ws[f"{col}{r}"].value
+
+    for r in range(start_row, end_row + 1):
+        c_val = str(input_ws[f"C{r}"].value)
+        if c_val.startswith("9"):
             continue
 
-        ref_key = ref_value.strip().lower()
-        matched_sheet_name = sheet_map.get(ref_key)
-        if not matched_sheet_name:
+        h_val = copy_ws[f"H{r}"].value
+        if h_val in kostenstelle_data:
+            k_data = kostenstelle_data[h_val]
+            b_val = k_data["E"]
+            copy_ws[f"B{r}"].value = b_val
+
+            if c_val.startswith(("705", "706", "707", "5")):
+                copy_ws[f"G{r}"].value = "V0" if b_val == 1001 else "U0" if b_val == 1002 else None
+            elif c_val.startswith(("704", "6")):
+                copy_ws[f"G{r}"].value = "A0" if b_val == 1001 else "D0" if b_val == 1002 else None
+
+            d_val = copy_ws[f"D{r}"].value
+            if d_val:
+                length = len(str(d_val).replace(" ", ""))
+                copy_ws[f"L{r}"].value = length
+                if length > 50:
+                    copy_ws[f"L{r}"].fill = orange_fill
+
+    for r in range(start_row, end_row + 1):
+        process_column_m(r, copy_ws, kostenstelle_data, column_a_colors, green_i_lookup, kostenstelle_ws)
+
+    for r in range(start_row, end_row + 1):
+        m_cell = copy_ws[f"M{r}"]
+        try:
+            if isinstance(m_cell.value, (int, float)):
+                m_cell.fill = orange_fill
+        except:
             continue
 
-        matched_sheet = wb[matched_sheet_name]
-
-        # Step 8: Find bold 'Summe' row
-        summe_row = None
-        for r in range(5, matched_sheet.max_row + 1):
-            cell = matched_sheet.cell(row=r, column=1)
-            if cell.value and "summe" in str(cell.value).lower() and cell.font.bold:
-                summe_row = r
-                break
-
-        if not summe_row:
+    for r in range(start_row, end_row + 1):
+        c_val = str(input_ws[f"C{r}"].value)
+        if c_val.startswith("9"):
             continue
+        g_val = copy_ws[f"G{r}"].value
+        if g_val in ["A0", "D0"]:
+            h_cell_val = copy_ws[f"H{r}"].value
+            if h_cell_val:
+                last_digits = str(h_cell_val)[-3:].zfill(3)
+                copy_ws[f"K{r}"].value = int("100000" + last_digits)
+                copy_ws[f"H{r}"].value = None
 
-        # Step 9: Identify visible source columns
-        visible_source_cols = [
-            col for col in range(2, matched_sheet.max_column + 1)
-            if not matched_sheet.column_dimensions[get_column_letter(col)].hidden
-        ]
+def process_files(input_path, user_start_row=None):
+    filename = os.path.basename(input_path)
+    filename_no_ext = os.path.splitext(filename)[0]
+    output_path = os.path.join(OUTPUT_DIR, f"{filename_no_ext} Neu.xlsx")
 
-        if not visible_source_cols:
-            continue
+    input_wb = openpyxl.load_workbook(input_path)
+    input_ws = input_wb.active
+    input_wb.save(output_path)
 
-        # Step 10: Collect values from Summe row
-        data_to_copy = []
-        for col in visible_source_cols:
-            val = matched_sheet.cell(row=summe_row, column=col).value
-            data_to_copy.append((col, val))
+    copy_wb = openpyxl.load_workbook(output_path)
+    copy_ws = copy_wb.active
 
-        # Step 11: Identify visible target columns in Sachaufwand
-        visible_target_cols = [
-            col for col in range(2, sach_sheet.max_column + 1)
-            if not sach_sheet.column_dimensions[get_column_letter(col)].hidden
-        ]
+    kostenstelle_wb = openpyxl.load_workbook(KOSTENSTELLE_PATH, data_only=True)
+    kostenstelle_ws = kostenstelle_wb.active
 
-        # Step 12: Paste values into target row
-        for i, col in enumerate(visible_target_cols):
-            if i < len(data_to_copy):
-                value = data_to_copy[i][1]
-                sach_sheet.cell(row=row, column=col).value = value
+    kostenstelle_data = {}
+    for row in kostenstelle_ws.iter_rows(min_row=2):
+        a_val = row[0].value
+        kostenstelle_data[a_val] = {
+            "E": row[4].value,
+            "F": row[5].value,
+            "I": row[8].value
+        }
 
-    # -----------------------
-    # ✨ Additional Step: Zwischensumme and Summe Aggregation (for all sheets)
-    # -----------------------
-    for sheet in wb.worksheets:
-        end_row = find_end_row(sheet)
-        zwischensumme_row = None
-        final_summe_row = None
+    column_a_colors, green_i_lookup = get_column_a_colors(KOSTENSTELLE_PATH)
 
-        for row in range(5, end_row + 1):
-            cell = sheet.cell(row=row, column=1)
-            if cell.value and isinstance(cell.value, str):
-                text = str(cell.value).lower()
-                if "zwischensumme" in text and cell.font.bold and not zwischensumme_row:
-                    zwischensumme_row = row
-                elif "summe" in text and cell.font.bold and not final_summe_row:
-                    final_summe_row = row
+    process_section(16, input_ws, copy_ws, kostenstelle_ws, column_a_colors, green_i_lookup, kostenstelle_data)
 
-        visible_cols = [
-            col for col in range(2, sheet.max_column + 1)
-            if not sheet.column_dimensions[get_column_letter(col)].hidden
-        ]
+    row = 16
+    while input_ws[f"C{row}"].value:
+        row += 1
+    end_row = row - 1
 
-        def sum_visible_rows(start_row, end_row):
-            col_sums = {col: 0 for col in visible_cols}
-            for row in range(start_row, end_row):
-                if sheet.row_dimensions[row].hidden:
-                    continue
-                for col in visible_cols:
-                    val = sheet.cell(row=row, column=col).value
-                    if isinstance(val, (int, float)):
-                        col_sums[col] += val
-            return col_sums
+    sum_e = sum(copy_ws[f"E{r}"].value for r in range(16, end_row + 1) if copy_ws[f"E{r}"].value is not None)
+    sum_f = sum(copy_ws[f"F{r}"].value for r in range(16, end_row + 1) if copy_ws[f"F{r}"].value is not None)
 
-        if zwischensumme_row:
-            zw_sum = sum_visible_rows(5, zwischensumme_row)
-            for col, value in zw_sum.items():
-                sheet.cell(row=zwischensumme_row, column=col).value = value
-            print(f"✅ Wrote Zwischensumme totals at row {zwischensumme_row} in '{sheet.title}'.")
+    copy_ws.cell(row=12, column=5).value = sum_e
+    copy_ws.cell(row=12, column=6).value = sum_f
+    copy_ws.cell(row=12, column=4).value = '=E12-F12'
 
-        if final_summe_row and zwischensumme_row:
-            summe_sum = sum_visible_rows(zwischensumme_row, final_summe_row)
-            for col, value in summe_sum.items():
-                sheet.cell(row=final_summe_row, column=col).value = value
-            print(f"✅ Wrote Summe totals at row {final_summe_row} in '{sheet.title}'.")
+    copy_ws.cell(row=15, column=13).value = "Kontrolle alte KST"
+    copy_ws.cell(row=15, column=12).value = "Kontrolle Länge Positionstext"
+
+    if user_start_row and user_start_row != 16:
+        process_section(user_start_row, input_ws, copy_ws, kostenstelle_ws, column_a_colors, green_i_lookup, kostenstelle_data)
+
+    copy_wb.save(output_path)
+    copy_wb.close()
+    kostenstelle_wb.close()
+    input_wb.close()
+
+    messagebox.showinfo("Success", f"File processed and saved as {output_path}")
+
+def main():
+    root = tk.Tk()
+    root.title("Excel Processing GUI")
+
+    tk.Label(root, text="Input Datei").grid(row=0, column=0, padx=10, pady=10)
+    input_entry = tk.Entry(root, width=50)
+    input_entry.grid(row=0, column=1)
+    tk.Button(root, text="Browse", command=lambda: browse_file(input_entry)).grid(row=0, column=2)
+
+    tk.Label(root, text="Zusätzliche Zeile (Optional)").grid(row=1, column=0, padx=10, pady=10)
+    row_entry = tk.Entry(root, width=10)
+    row_entry.grid(row=1, column=1, sticky='w')
+
+    def run_process():
+        input_path = input_entry.get()
+        row_val = row_entry.get()
+
+        if not input_path:
+            messagebox.showerror("Error", "Input file is required!")
+            return
+
+        try:
+            custom_row = int(row_val) if row_val.strip() else None
+        except ValueError:
+            messagebox.showerror("Error", "Please enter a valid number for the row.")
+            return
+
+        process_files(input_path, custom_row)
+
+    tk.Button(root, text="Process Files", command=run_process, bg="lightblue").grid(row=2, column=1, pady=20)
+    root.mainloop()
+
+if __name__ == "__main__":
+    main()
