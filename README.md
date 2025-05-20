@@ -1,161 +1,109 @@
-def process_sachaufwand_links(wb, file_path):
-    # Step 1: Reload workbook WITHOUT data_only to access formulas
-    wb_with_formulas = openpyxl.load_workbook(file_path, data_only=False)
+def process_excel_files(directory):
+    current_year = datetime.now().year
 
-    # Step 2: Get 'Sachaufwand' sheet (case-insensitive) from both workbooks
-    sach_sheet = None
-    sach_sheet_formula = None
-    for sheet in wb.sheetnames:
-        if sheet.lower() == "sachaufwand":
-            sach_sheet = wb[sheet]
-            break
-    for sheet in wb_with_formulas.sheetnames:
-        if sheet.lower() == "sachaufwand":
-            sach_sheet_formula = wb_with_formulas[sheet]
-            break
-
-    if not sach_sheet or not sach_sheet_formula:
-        print("❌ 'Sachaufwand' sheet not found in one or both workbooks.")
-        return
-
-    print("\n🔍 Starting process_sachaufwand_links for 'Sachaufwand'...")
-
-    # 🧽 Step 2.5: Remove all formulas from entire 'Sachaufwand' sheet
-    print("🧹 Removing all formulas from entire 'Sachaufwand' sheet...")
-    for row in range(1, sach_sheet_formula.max_row + 1):
-        for col in range(1, sach_sheet_formula.max_column + 1):
-            cell_formula = sach_sheet_formula.cell(row=row, column=col)
-            cell_target = sach_sheet.cell(row=row, column=col)
-            if isinstance(cell_formula.value, str) and cell_formula.value.strip().startswith("="):
-                cell_target.value = None
-
-    # Step 3: Clear values and formulas from row 5 onward, columns B+
-    cleared_cells = 0
-    max_row = sach_sheet_formula.max_row
-    max_col = sach_sheet_formula.max_column
-
-    for row in range(5, max_row + 1):
-        for col in range(2, max_col + 1):  # Start from column B
-            cell_formula = sach_sheet_formula.cell(row=row, column=col)
-            cell_target = sach_sheet.cell(row=row, column=col)
-            if isinstance(cell_formula.value, str) and cell_formula.value.strip().startswith("="):
-                cell_target.value = None
-                cleared_cells += 1
-            elif cell_target.value is not None:
-                cell_target.value = None
-                cleared_cells += 1
-
-    print(f"🧹 Cleared {cleared_cells} cells from 'Sachaufwand' (excluding headers and column A).")
-
-    # Step 4: Prepare lowercase sheet name map
-    sheet_map = {s.lower(): s for s in wb.sheetnames}
-
-    # Step 5: Define function to find end row
-    def find_end_row(sheet):
-        for row in range(sheet.max_row, 0, -1):
-            if any(sheet.cell(row=row, column=col).value is not None for col in range(1, sheet.max_column + 1)):
-                return row
-        return sheet.max_row
-
-    # Step 6: Find end row in Sachaufwand
-    end_row = find_end_row(sach_sheet)
-    print(f"✅ Detected end row in 'Sachaufwand': {end_row}")
-
-    # Step 7: Loop through each visible row
-    for row in range(5, end_row + 1):
-        if sach_sheet.row_dimensions[row].hidden:
+    for file in os.listdir(directory):
+        if file.lower().startswith("kostenstelle") or not file.endswith((".xlsx", ".xlsm")):
             continue
+        file_path = os.path.join(directory, file)
+        wb = openpyxl.load_workbook(file_path)
+        sheet_colors = get_sheet_tab_colors(file_path)
 
-        ref_value = sach_sheet.cell(row=row, column=1).value
-        if not ref_value or not isinstance(ref_value, str):
-            continue
+        for sheet_name in wb.sheetnames:
+            tab_color = sheet_colors.get(sheet_name, "")
+            if "green" not in tab_color.lower():
+                continue
 
-        ref_key = ref_value.strip().lower()
-        matched_sheet_name = sheet_map.get(ref_key)
-        if not matched_sheet_name:
-            continue
+            ws = wb[sheet_name]
+            delete_columns_B_and_C(ws)
+            end_row = find_end_row(ws, sheet_name)
+            vera_cols = find_merged_veraenderung_columns(ws)
+            if vera_cols is None:
+                continue
 
-        matched_sheet = wb[matched_sheet_name]
+            vera_start_col, vera_end_col = vera_cols
+            insert_col = vera_start_col
 
-        # Step 8: Find bold 'Summe' row
-        summe_row = None
-        for r in range(5, matched_sheet.max_row + 1):
-            cell = matched_sheet.cell(row=r, column=1)
-            if cell.value and "summe" in str(cell.value).lower() and cell.font.bold:
-                summe_row = r
+            merged_to_restore = []
+            for merged_range in list(ws.merged_cells.ranges):
+                if merged_range.min_row == 3 and merged_range.max_row == 3:
+                    if merged_range.min_col == vera_start_col and merged_range.max_col == vera_end_col:
+                        merged_to_restore.append(merged_range)
+                        ws.unmerge_cells(str(merged_range))
+
+            existing_plan = ws.cell(row=3, column=vera_start_col - 2).value
+            existing_ist = ws.cell(row=3, column=vera_start_col - 1).value
+            if str(existing_plan).strip().lower() == "plan" and str(existing_ist).strip().lower() == "ist":
+                print(f"Skipping insertion in sheet '{sheet_name}' of file '{file}' as columns already exist.")
+                continue
+
+            ws.insert_cols(insert_col, 2)
+
+            for merged_range in merged_to_restore:
+                new_start = merged_range.min_col + 2
+                new_end = merged_range.max_col + 2
+                ws.merge_cells(start_row=3, start_column=new_start, end_row=3, end_column=new_end)
+
+            ws.cell(row=3, column=insert_col).value = "IST"
+            ws.cell(row=4, column=insert_col).value = f"{current_year}e"
+            style_cell(ws.cell(row=3, column=insert_col))
+            style_cell(ws.cell(row=4, column=insert_col))
+
+            ws.cell(row=3, column=insert_col + 1).value = "PLAN"
+            ws.cell(row=4, column=insert_col + 1).value = current_year + 1
+            style_cell(ws.cell(row=3, column=insert_col + 1))
+            style_cell(ws.cell(row=4, column=insert_col + 1))
+
+            for row in range(5, end_row + 1):
+                ws.cell(row=row, column=insert_col).value = None
+                ws.cell(row=row, column=insert_col + 1).value = None
+                style_cell(ws.cell(row=row, column=insert_col))
+                style_cell(ws.cell(row=row, column=insert_col + 1))
+
+            apply_veraenderung_formulas(ws, ist_col=insert_col, plan_col=insert_col + 1,
+                                        vera_start_col=vera_start_col, end_row=end_row)
+
+            unhide_cols = {1, insert_col, insert_col + 1}
+            unhide_cols.update(range(vera_start_col + 2, vera_end_col + 4))
+
+            for col in range(1, ws.max_column + 1):
+                header3 = ws.cell(row=3, column=col).value
+                header4 = str(ws.cell(row=4, column=col).value)
+                if (header3 == "PLAN" and header4.replace("e", "").strip() == str(current_year)) or \
+                   (header3 == "IST" and header4.replace("e", "").strip() in [str(current_year), str(current_year - 1), str(current_year - 2)]):
+                    unhide_cols.add(col)
+                    if col != insert_col and col != insert_col + 1:
+                        ws.cell(row=4, column=col).value = header4.replace("e", "").strip()
+
+            for col in range(1, ws.max_column + 1):
+                col_letter = get_column_letter(col)
+                ws.column_dimensions[col_letter].hidden = col not in unhide_cols
+
+            for col in unhide_cols:
+                if col != 1:
+                    col_letter = get_column_letter(col)
+                    ws.column_dimensions[col_letter].width = 18
+
+        # Save the green sheet updates
+        wb.save(file_path)
+
+        # ✅ Apply Veränderung logic to Sachaufwand if it exists
+        sach_sheet = None
+        for sname in wb.sheetnames:
+            if sname.lower() == "sachaufwand":
+                sach_sheet = wb[sname]
                 break
 
-        if not summe_row:
-            continue
-
-        # Step 9: Identify visible source columns
-        visible_source_cols = [
-            col for col in range(2, matched_sheet.max_column + 1)
-            if not matched_sheet.column_dimensions[get_column_letter(col)].hidden
-        ]
-
-        if not visible_source_cols:
-            continue
-
-        # Step 10: Collect values from Summe row
-        data_to_copy = []
-        for col in visible_source_cols:
-            val = matched_sheet.cell(row=summe_row, column=col).value
-            data_to_copy.append((col, val))
-
-        # Step 11: Identify visible target columns in Sachaufwand
-        visible_target_cols = [
-            col for col in range(2, sach_sheet.max_column + 1)
-            if not sach_sheet.column_dimensions[get_column_letter(col)].hidden
-        ]
-
-        # Step 12: Paste values into target row
-        for i, col in enumerate(visible_target_cols):
-            if i < len(data_to_copy):
-                value = data_to_copy[i][1]
-                sach_sheet.cell(row=row, column=col).value = value
-
-    # -----------------------
-    # ✨ Additional Step: Zwischensumme and Summe Aggregation (for all sheets)
-    # -----------------------
-    for sheet in wb.worksheets:
-        end_row = find_end_row(sheet)
-        zwischensumme_row = None
-        final_summe_row = None
-
-        for row in range(5, end_row + 1):
-            cell = sheet.cell(row=row, column=1)
-            if cell.value and isinstance(cell.value, str):
-                text = str(cell.value).lower()
-                if "zwischensumme" in text and cell.font.bold and not zwischensumme_row:
-                    zwischensumme_row = row
-                elif "summe" in text and cell.font.bold and not final_summe_row:
-                    final_summe_row = row
-
-        visible_cols = [
-            col for col in range(2, sheet.max_column + 1)
-            if not sheet.column_dimensions[get_column_letter(col)].hidden
-        ]
-
-        def sum_visible_rows(start_row, end_row):
-            col_sums = {col: 0 for col in visible_cols}
-            for row in range(start_row, end_row):
-                if sheet.row_dimensions[row].hidden:
-                    continue
-                for col in visible_cols:
-                    val = sheet.cell(row=row, column=col).value
-                    if isinstance(val, (int, float)):
-                        col_sums[col] += val
-            return col_sums
-
-        if zwischensumme_row:
-            zw_sum = sum_visible_rows(5, zwischensumme_row)
-            for col, value in zw_sum.items():
-                sheet.cell(row=zwischensumme_row, column=col).value = value
-            print(f"✅ Wrote Zwischensumme totals at row {zwischensumme_row} in '{sheet.title}'.")
-
-        if final_summe_row and zwischensumme_row:
-            summe_sum = sum_visible_rows(zwischensumme_row, final_summe_row)
-            for col, value in summe_sum.items():
-                sheet.cell(row=final_summe_row, column=col).value = value
-            print(f"✅ Wrote Summe totals at row {final_summe_row} in '{sheet.title}'.")
+        if sach_sheet:
+            sach_end_row = find_end_row(sach_sheet, sach_sheet.title)
+            vera_cols = find_merged_veraenderung_columns(sach_sheet)
+            if vera_cols:
+                vera_start_col, _ = vera_cols
+                apply_veraenderung_formulas(
+                    sach_sheet,
+                    ist_col=vera_start_col - 2,
+                    plan_col=vera_start_col - 1,
+                    vera_start_col=vera_start_col,
+                    end_row=sach_end_row
+                )
+                apply_final_sums(sach_sheet, sach_end_row)
+                print(f"✅ Veränderung formulas and final sums applied to 'Sachaufwand' sheet.")
