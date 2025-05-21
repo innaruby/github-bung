@@ -1,54 +1,8 @@
-from openpyxl.utils import get_column_letter
-from openpyxl.cell.cell import MergedCell
-
-def find_merged_veraenderung_columns(ws):
-    for row in [3, 4]:
-        for merged_range in ws.merged_cells.ranges:
-            if merged_range.min_row == row and merged_range.max_row == row:
-                cell_value = ws.cell(row=row, column=merged_range.min_col).value
-                if cell_value and "veränderung" in str(cell_value).lower():
-                    return (merged_range.min_col, merged_range.max_col)
-        # Check unmerged adjacent cells
-        for col in range(1, ws.max_column):
-            val1 = ws.cell(row=row, column=col).value
-            val2 = ws.cell(row=row, column=col + 1).value
-            if (val1 and "veränderung" in str(val1).lower()) and \
-               (val2 and "veränderung" in str(val2).lower()):
-                return (col, col + 1)
-    return None
-
-def apply_veraenderung_formulas(ws, ist_col, plan_col, vera_start_col, end_row):
-    diff_col = vera_start_col         # First Veränderung column (DIFFERENCE)
-    perc_col = vera_start_col + 1     # Second Veränderung column (% CHANGE)
-
-    print(f"\n🧮 Applying Veränderung formulas in '{ws.title}'")
-    print(f"   IST: {get_column_letter(ist_col)} ({ist_col}), PLAN: {get_column_letter(plan_col)} ({plan_col})")
-    print(f"   Veränderung cols: {get_column_letter(diff_col)} ({diff_col}), {get_column_letter(perc_col)} ({perc_col})")
-
-    for row in range(5, end_row + 1):
-        plan_letter = get_column_letter(plan_col)
-        ist_letter = get_column_letter(ist_col)
-        diff_letter = get_column_letter(diff_col)
-
-        diff_cell = ws.cell(row=row, column=diff_col)
-        perc_cell = ws.cell(row=row, column=perc_col)
-
-        if isinstance(diff_cell, MergedCell) or isinstance(perc_cell, MergedCell):
-            print(f"⚠️ Row {row}: Skipped (merged cell)")
-            continue
-
-        diff_formula = f"={plan_letter}{row}-{ist_letter}{row}"
-        perc_formula = f"=IF({ist_letter}{row}=0,0,({diff_letter}{row}/{ist_letter}{row})*100)"
-
-        diff_cell.value = diff_formula
-        perc_cell.value = perc_formula
-
-        print(f"✅ Row {row}: {get_column_letter(diff_col)}{row} = {diff_formula}")
-        print(f"            {get_column_letter(perc_col)}{row} = {perc_formula}")
-
 def process_sachaufwand_links(wb, file_path):
+    # Step 1: Reload workbook WITHOUT data_only to access formulas
     wb_with_formulas = openpyxl.load_workbook(file_path, data_only=False)
 
+    # Step 2: Get 'Sachaufwand' sheet (case-insensitive) from both workbooks
     sach_sheet = None
     sach_sheet_formula = None
     for sheet in wb.sheetnames:
@@ -66,12 +20,13 @@ def process_sachaufwand_links(wb, file_path):
 
     print("\n🔍 Starting process_sachaufwand_links for 'Sachaufwand'...")
 
+    # Step 3: Clear values and formulas from row 5 onward, columns B+
     cleared_cells = 0
     max_row = sach_sheet_formula.max_row
     max_col = sach_sheet_formula.max_column
 
     for row in range(5, max_row + 1):
-        for col in range(2, max_col + 1):
+        for col in range(2, max_col + 1):  # Start from column B
             cell_formula = sach_sheet_formula.cell(row=row, column=col)
             cell_target = sach_sheet.cell(row=row, column=col)
             if isinstance(cell_formula.value, str) and cell_formula.value.strip().startswith("="):
@@ -83,17 +38,21 @@ def process_sachaufwand_links(wb, file_path):
 
     print(f"🧹 Cleared {cleared_cells} cells from 'Sachaufwand' (excluding headers and column A).")
 
+    # Step 4: Prepare lowercase sheet name map
     sheet_map = {s.lower(): s for s in wb.sheetnames}
 
+    # Step 5: Define function to find end row
     def find_end_row(sheet):
         for row in range(sheet.max_row, 0, -1):
             if any(sheet.cell(row=row, column=col).value is not None for col in range(1, sheet.max_column + 1)):
                 return row
         return sheet.max_row
 
+    # Step 6: Find end row in Sachaufwand
     end_row = find_end_row(sach_sheet)
     print(f"✅ Detected end row in 'Sachaufwand': {end_row}")
 
+    # Step 7: Loop through each visible row
     for row in range(5, end_row + 1):
         if sach_sheet.row_dimensions[row].hidden:
             continue
@@ -109,6 +68,7 @@ def process_sachaufwand_links(wb, file_path):
 
         matched_sheet = wb[matched_sheet_name]
 
+        # Step 8: Find bold 'Summe' row
         summe_row = None
         for r in range(5, matched_sheet.max_row + 1):
             cell = matched_sheet.cell(row=r, column=1)
@@ -119,6 +79,7 @@ def process_sachaufwand_links(wb, file_path):
         if not summe_row:
             continue
 
+        # Step 9: Identify visible source columns
         visible_source_cols = [
             col for col in range(2, matched_sheet.max_column + 1)
             if not matched_sheet.column_dimensions[get_column_letter(col)].hidden
@@ -127,34 +88,44 @@ def process_sachaufwand_links(wb, file_path):
         if not visible_source_cols:
             continue
 
+        # Step 10: Collect values from Summe row
         data_to_copy = []
         for col in visible_source_cols:
             val = matched_sheet.cell(row=summe_row, column=col).value
             data_to_copy.append((col, val))
 
+        # Step 11: Identify visible target columns in Sachaufwand
         visible_target_cols = [
             col for col in range(2, sach_sheet.max_column + 1)
             if not sach_sheet.column_dimensions[get_column_letter(col)].hidden
         ]
 
+        # Step 12: Paste values into target row
         for i, col in enumerate(visible_target_cols):
             if i < len(data_to_copy):
                 value = data_to_copy[i][1]
                 sach_sheet.cell(row=row, column=col).value = value
 
+    # Step 13: Apply Veränderung formulas to Sachaufwand sheet
     veraenderung_cols = find_merged_veraenderung_columns(sach_sheet)
     if veraenderung_cols:
-        vera_start_col = veraenderung_cols[0]
-        ist_col_sach = vera_start_col - 2
-        plan_col_sach = vera_start_col - 1
+        vera_start_col, vera_end_col = veraenderung_cols
+        print(f"🛠️ Applying Veränderung formulas to 'Sachaufwand': Columns {get_column_letter(vera_start_col)} to {get_column_letter(vera_end_col)}")
 
-        apply_veraenderung_formulas(
-            sach_sheet,
-            ist_col=ist_col_sach,
-            plan_col=plan_col_sach,
-            vera_start_col=vera_start_col,
-            end_row=end_row
-        )
-        print(f"🧮 Applied Veränderung formulas to 'Sachaufwand' columns {get_column_letter(vera_start_col)} and {get_column_letter(vera_start_col + 1)}")
+        # Identify IST and PLAN columns (2 left of vera_start_col)
+        ist_col = vera_start_col - 2
+        plan_col = vera_start_col - 1
+
+        # Check if these columns are within bounds
+        if ist_col >= 1 and plan_col >= 1:
+            apply_veraenderung_formulas(
+                sach_sheet,
+                ist_col=ist_col,
+                plan_col=plan_col,
+                vera_start_col=vera_start_col,
+                end_row=end_row
+            )
+        else:
+            print("⚠️ Not enough columns to determine IST and PLAN in 'Sachaufwand'. Skipping.")
     else:
-        print("⚠️ Veränderung columns not found in 'Sachaufwand'.")
+        print("⚠️ Veränderung columns not found in 'Sachaufwand'. Skipping formula application.")
