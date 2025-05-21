@@ -1,4 +1,5 @@
 from openpyxl.utils import get_column_letter
+from openpyxl.cell.cell import MergedCell
 
 def fill_empty_cells_with_zero(ws, end_row):
     visible_columns = [col for col in range(1, ws.max_column + 1)
@@ -9,6 +10,7 @@ def fill_empty_cells_with_zero(ws, end_row):
             continue
         for col in visible_columns:
             cell = ws.cell(row=row, column=col)
+            if isinstance(cell, MergedCell):
+                continue  # Skip non-top-left merged cells
             if cell.value in (None, ""):
                 cell.value = 0
-fill_empty_cells_with_zero(ws, end_row)
