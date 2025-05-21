@@ -1,31 +1,42 @@
-def apply_number_format_to_ist_and_plan_columns(ws, end_row):
-    """
-    Converts and formats values in visible IST and PLAN columns from 420000 to 420.000.
-    """
-    current_year = datetime.now().year
-    ist_col = None
-    plan_col = None
+ ws.cell(row=3, column=insert_col).value = "IST"
+            ws.cell(row=4, column=insert_col).value = f"{current_year}e"
+            style_cell(ws.cell(row=3, column=insert_col))
+            style_cell(ws.cell(row=4, column=insert_col))
 
-    for col in range(1, ws.max_column + 1):
-        if ws.column_dimensions[get_column_letter(col)].hidden:
-            continue
-        header_3 = str(ws.cell(row=3, column=col).value or "").strip().upper()
-        header_4 = str(ws.cell(row=4, column=col).value or "").strip().replace("e", "")
-        if header_3 == "IST" and header_4 == str(current_year):
-            ist_col = col
-        elif header_3 == "PLAN" and header_4 == str(current_year + 1):
-            plan_col = col
+            ws.cell(row=3, column=insert_col + 1).value = "PLAN"
+            ws.cell(row=4, column=insert_col + 1).value = current_year + 1
+            style_cell(ws.cell(row=3, column=insert_col + 1))
+            style_cell(ws.cell(row=4, column=insert_col + 1))
 
-    # Use 3 decimal places
-    number_format = '#,##0.000'
+            # Identify a visible reference column before the insertion point
+            reference_col = None
+            for c in range(insert_col - 1, 1, -1):
+                if not ws.column_dimensions[get_column_letter(c)].hidden:
+                    reference_col = c
+                    break
 
-    for target_col in [ist_col, plan_col]:
-        if not target_col:
-            continue
-        for row in range(5, end_row + 1):
-            cell = ws.cell(row=row, column=target_col)
-            val = cell.value
-            if isinstance(val, (int, float)):
-                new_val = val / 1000
-                cell.value = new_val
-                cell.number_format = number_format
+            for row in range(5, end_row + 1):
+                ist_cell = ws.cell(row=row, column=insert_col)
+                plan_cell = ws.cell(row=row, column=insert_col + 1)
+
+                ist_cell.value = None
+                plan_cell.value = None
+
+                if reference_col:
+                    ref_cell = ws.cell(row=row, column=reference_col)
+                    if ref_cell.has_style:
+                        ist_cell.font = copy.copy(ref_cell.font)
+                        ist_cell.alignment = copy.copy(ref_cell.alignment)
+                        ist_cell.border = copy.copy(ref_cell.border)
+                        ist_cell.fill = copy.copy(ref_cell.fill)
+                        ist_cell.number_format = ref_cell.number_format  # This is a string, safe to assign directly
+
+                        plan_cell.font = copy.copy(ref_cell.font)
+                        plan_cell.alignment = copy.copy(ref_cell.alignment)
+                        plan_cell.border = copy.copy(ref_cell.border)
+                        plan_cell.fill = copy.copy(ref_cell.fill)
+                        plan_cell.number_format = ref_cell.number_format
+                else:
+                    # fallback to your existing styling
+                    style_cell(ist_cell)
+                    style_cell(plan_cell)
