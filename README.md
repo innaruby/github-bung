@@ -40,10 +40,46 @@ def apply_number_format_to_ist_plan_columns(directory):
                     for row in range(5, end_row + 1):
                         cell = ws.cell(row=row, column=col)
                         if isinstance(cell.value, (int, float)):
-                            cell.number_format = '#,##0.000'  # Match formatting logic used elsewhere
+                            # Round to 3 decimals explicitly and avoid formats like -420.000,000
+                            rounded_val = round(float(cell.value), 3)
+                            cell.value = rounded_val
+                            cell.number_format = '#,##0.000'
 
         wb.save(file_path)
         print(f"🧾 Number formatting applied to IST and PLAN columns in file: {file}")
+
+# Update main() to include this at the end
+
+def main():
+    root = Tk()
+    root.withdraw()
+    selected_directory = filedialog.askdirectory(title="Select Directory with Excel Files")
+    if selected_directory:
+        process_excel_files(selected_directory)
+        post_processing_with_vlookup(selected_directory)
+        final_sum_pass(selected_directory)
+
+        for file in os.listdir(selected_directory):
+            if file.lower().startswith("kostenstelle") or not file.endswith((".xlsx", ".xlsm")):
+                continue
+            file_path = os.path.join(selected_directory, file)
+            wb = openpyxl.load_workbook(file_path)
+            process_sachaufwand_links(wb, file_path) 
+            for sheet_name in wb.sheetnames:
+                if sheet_name.lower() == 'sachaufwand':
+                    ws = wb[sheet_name]
+                    end_row = find_end_row(ws, sheet_name)
+                    apply_final_sums(ws, end_row)
+                    print(f"📘 Zwischensumme and Summe logic applied to 'Sachaufwand' in file: {file}")
+            wb.save(file_path)
+            print(f"💾 Final update (Sachaufwand) saved in file: {file}")
+
+        # 🆕 Apply formatting to IST and PLAN columns
+        apply_number_format_to_ist_plan_columns(selected_directory)
+
+if __name__ == "__main__":
+    main()
+
 
 # Update main() to include this at the end
 
