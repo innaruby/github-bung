@@ -17,7 +17,6 @@ def apply_final_sums(ws, end_row):
         print(f"⚠️ [Sheet: {sheet_name}] No visible columns before Veränderung.")
         return
 
-    # Identify visible rows and special rows
     visible_rows = [r for r in range(5, end_row + 1) if not ws.row_dimensions[r].hidden]
     zwischensumme_rows = []
     summe_rows = []
@@ -30,52 +29,58 @@ def apply_final_sums(ws, end_row):
             elif "summe" in cell_val:
                 summe_rows.append(row)
 
-    # Pass 1: Handle Zwischensumme
     zwischensumme_values = {}  # {row: {col: value}}
     previous = 4
     for z_row in zwischensumme_rows:
         rows_to_sum = [r for r in visible_rows if previous < r < z_row]
         zwischensumme_values[z_row] = {}
         print(f"🧩 Zwischensumme row {z_row} → summing rows {rows_to_sum}")
+
         for col in visible_cols:
             total = 0
+            value_details = []
+            col_letter = get_column_letter(col)
             for r in rows_to_sum:
-                val = ws.cell(row=r, column=col).value
-                parsed = parse_numeric(val)
+                cell = ws.cell(row=r, column=col)
+                parsed = parse_numeric(cell.value)
                 total += parsed
-            cell = ws.cell(row=z_row, column=col)
-            cell.value = None
-            cell.value = total
+                value_details.append(f"{col_letter}{r}={parsed}")
+            target_cell = ws.cell(row=z_row, column=col)
+            target_cell.value = None
+            target_cell.value = total
             zwischensumme_values[z_row][col] = total
-            print(f"   🟢 Wrote {total} to {get_column_letter(col)}{z_row}")
+
+            print(f"   🟢 Zwischensumme {col_letter}{z_row} = {' + '.join([v.split('=')[0] for v in value_details])} = {total}")
+            print(f"     🔍 Values: {', '.join(value_details)}")
         previous = z_row
 
-    # Pass 2: Handle Summe
     for s_row in summe_rows:
-        print(f"🧮 Processing Summe row {s_row}")
+        print(f"🧮 Summe row {s_row} processing...")
         prev_z_row = max([z for z in zwischensumme_rows if z < s_row], default=None)
-        rows_to_sum = []
-
-        if prev_z_row:
-            rows_to_sum = [r for r in visible_rows if prev_z_row < r < s_row]
-        else:
-            rows_to_sum = [r for r in visible_rows if r < s_row]
+        rows_to_sum = [r for r in visible_rows if (prev_z_row or 4) < r < s_row]
 
         for col in visible_cols:
+            col_letter = get_column_letter(col)
             total = 0
+            value_details = []
 
             if prev_z_row:
-                total += zwischensumme_values.get(prev_z_row, {}).get(col, 0)
+                zw_val = zwischensumme_values.get(prev_z_row, {}).get(col, 0)
+                total += zw_val
+                value_details.append(f"{col_letter}{prev_z_row}={zw_val}")
 
             for r in rows_to_sum:
-                val = ws.cell(row=r, column=col).value
-                parsed = parse_numeric(val)
+                cell = ws.cell(row=r, column=col)
+                parsed = parse_numeric(cell.value)
                 total += parsed
+                value_details.append(f"{col_letter}{r}={parsed}")
 
-            cell = ws.cell(row=s_row, column=col)
-            cell.value = None
-            cell.value = total
-            print(f"   ✅ Wrote total {total} to {get_column_letter(col)}{s_row}")
+            target_cell = ws.cell(row=s_row, column=col)
+            target_cell.value = None
+            target_cell.value = total
+
+            print(f"   ✅ Summe {col_letter}{s_row} = {' + '.join([v.split('=')[0] for v in value_details])} = {total}")
+            print(f"     🔍 Values: {', '.join(value_details)}")
 
 def parse_numeric(val):
     if val is None or val == "":
