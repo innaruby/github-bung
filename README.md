@@ -50,9 +50,9 @@ def apply_number_format_to_ist_plan_columns(directory):
                         cell = ws.cell(row=row, column=col)
                         if isinstance(cell.value, (int, float)):
                             original_val = cell.value
-                            rounded_val = round(float(original_val) / 1000, 3)
+                            rounded_val = round(float(original_val), 3)
                             cell.value = rounded_val
-                            cell.number_format = '#,##0.000'  # Include thousands separator and decimals
+                            cell.number_format = '#,##0.000'
                             print(f"      ✅ Formatted {get_column_letter(col)}{row}: {original_val} → {rounded_val}")
                         elif isinstance(cell.value, str) and cell.value.strip().startswith("="):
                             cell.number_format = '#,##0.000'
