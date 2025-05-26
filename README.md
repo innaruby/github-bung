@@ -1,4 +1,4 @@
-def apply_final_adjustments(file_path):
+def apply_final_adjustments_clean(file_path):
     wb = openpyxl.load_workbook(file_path)
     for ws in wb.worksheets:
         veraenderung_cols = find_merged_veraenderung_columns(ws)
@@ -12,20 +12,12 @@ def apply_final_adjustments(file_path):
         for col in [new_ist_col, new_plan_col]:
             for row in [3, 4]:
                 cell = ws.cell(row=row, column=col)
-                if row == 3:
-                    cell.border = Border(
-                        top=cell.border.top,
-                        left=cell.border.left,
-                        right=cell.border.right,
-                        bottom=Side(style=None)
-                    )
-                if row == 4:
-                    cell.border = Border(
-                        bottom=cell.border.bottom,
-                        left=cell.border.left,
-                        right=cell.border.right,
-                        top=Side(style=None)
-                    )
+                cell.border = Border(
+                    top=Side(style=None),
+                    bottom=Side(style=None),
+                    left=Side(style=cell.border.left.style if cell.border.left else None),
+                    right=Side(style=cell.border.right.style if cell.border.right else None)
+                )
 
         reference_col = None
         for col in range(new_ist_col - 1, 1, -1):
@@ -47,6 +39,3 @@ def apply_final_adjustments(file_path):
                     )
 
     wb.save(file_path)
-
-# After saving the workbook in your main loop
-apply_final_adjustments(file_path)
